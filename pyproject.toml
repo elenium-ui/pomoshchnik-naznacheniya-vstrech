@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meeting-booking-bot"
+version = "0.3.0"
+description = "Stage 2 foundation for the Telegram project 'Запись на встречу'"
+requires-python = ">=3.12"
+dependencies = [
+  "pydantic>=2.7.0",
+  "pydantic-settings>=2.2.1",
+  "SQLAlchemy>=2.0.30",
+  "alembic>=1.13.1",
+  "aiogram>=3.7.0",
+  "google-api-python-client>=2.170.0",
+  "google-auth>=2.40.0",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8.2.0",
+  "pytest-asyncio>=0.23.7",
+]
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"
