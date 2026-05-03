@@ -34,7 +34,11 @@ from app.bot.keyboards.booking import (
     optional_skip_keyboard,
     slot_selection_keyboard,
 )
-from app.bot.keyboards.admin_booking import admin_booking_actions_keyboard, admin_bookings_view_keyboard
+from app.bot.keyboards.admin_booking import (
+    admin_booking_actions_keyboard,
+    admin_bookings_view_keyboard,
+    admin_confirmed_booking_actions_keyboard,
+)
 from app.bot.keyboards.admin_settings import (
     BTN_ADD_BLOCK,
     BTN_ADD_WINDOW,
@@ -210,6 +214,7 @@ def _user_status_badge(status: str) -> str:
         "rejected": "❌ Не подтверждена",
         "cancelled_by_user": "🚫 Отменена",
         "cancelled_by_admin": "🚫 Отменена",
+        "canceled_by_admin": "🚫 Отменена",
         "reschedule_pending_decision": "🔁 Перенос на подтверждении",
     }
     return mapping.get(status, "ℹ️ В обработке")
@@ -2206,7 +2211,10 @@ def build_booking_router(settings: Settings, session_factory: sessionmaker) -> R
         await message.answer(f"✅ Подтвержденных заявок: {len(bookings)}")
         for booking in bookings:
             user = user_service.get_user_by_id(booking.user_id)
-            await message.answer(_format_admin_booking_card(booking, user))
+            await message.answer(
+                _format_admin_booking_card(booking, user),
+                reply_markup=admin_confirmed_booking_actions_keyboard(booking.id),
+            )
 
     @router.callback_query(F.data == "admin:view:queue")
     async def admin_view_queue_bookings(callback: CallbackQuery) -> None:
@@ -2282,6 +2290,52 @@ def build_booking_router(settings: Settings, session_factory: sessionmaker) -> R
                 "✅ Встреча подтверждена.\n\n"
                 + _format_booking_card_line(result.booking, include_status_badge=False)
                 + "\nЕсли планы изменятся, откройте «📂 Мои заявки» и выберите действие."
+            ),
+        )
+
+    @router.callback_query(F.data.startswith("admin:cancel_confirmed:"))
+    async def admin_cancel_confirmed_booking(callback: CallbackQuery) -> None:
+        if not callback.from_user:
+            return
+        role = user_service.resolve_role(callback.from_user.id, settings.ADMIN_USER_ID)
+        if role != UserRole.ADMIN:
+            await callback.answer("Недостаточно прав.", show_alert=True)
+            return
+
+        payload = callback.data or ""
+        try:
+            booking_id = int(payload.split(":")[2])
+        except (IndexError, ValueError):
+            await callback.answer("Некорректная команда.", show_alert=True)
+            return
+
+        try:
+            result = booking_service.cancel_confirmed_booking_by_admin(
+                booking_id=booking_id,
+                admin_telegram_user_id=callback.from_user.id,
+            )
+        except ValueError as exc:
+            await callback.answer(str(exc), show_alert=True)
+            return
+        except Exception:
+            logger.exception("Admin cancel confirmed failed: booking_id=%s", booking_id)
+            await callback.answer("Ошибка при отмене заявки. Проверьте логи.", show_alert=True)
+            return
+
+        if callback.message:
+            await callback.message.edit_text(
+                _format_admin_booking_card(result.booking, result.user),
+                reply_markup=None,
+            )
+            await callback.message.answer("Подтвержденная заявка отменена.")
+        await callback.answer("Отменено.")
+
+        await notify_user_result(
+            callback=callback,
+            user_telegram_user_id=result.user.telegram_user_id,
+            text=(
+                "🚫 Ваша встреча отменена администратором.\n"
+                "При необходимости создайте новую заявку через «📝 Новая заявка»."
             ),
         )
 

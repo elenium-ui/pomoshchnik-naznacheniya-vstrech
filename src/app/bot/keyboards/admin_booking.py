@@ -27,3 +27,16 @@ def admin_bookings_view_keyboard() -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+
+def admin_confirmed_booking_actions_keyboard(booking_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🚫 Отменить",
+                    callback_data=f"admin:cancel_confirmed:{booking_id}",
+                )
+            ]
+        ]
+    )

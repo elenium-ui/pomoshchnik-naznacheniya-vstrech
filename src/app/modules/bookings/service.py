@@ -268,6 +268,51 @@ class BookingService:
             logger.info("Booking rejected by admin: booking_id=%s slot_released=true", booking.id)
             return BookingDecisionResult(booking=booking, user=user)
 
+    def cancel_confirmed_booking_by_admin(self, booking_id: int, admin_telegram_user_id: int) -> BookingDecisionResult:
+        with self._session_scope() as session:
+            booking = self._repository.get_by_id(session=session, booking_id=booking_id)
+            if booking is None:
+                raise ValueError("Заявка не найдена.")
+            if booking.status != "confirmed":
+                raise ValueError("Отменить можно только подтвержденную заявку.")
+
+            user = self._user_repository.get_by_id(session=session, user_id=booking.user_id)
+            if user is None:
+                raise ValueError("Пользователь заявки не найден.")
+
+            if booking.calendar_event_id:
+                self._calendar_client_for_use().delete_event(booking.calendar_event_id)
+                logger.info(
+                    "Calendar event removed due to admin cancellation: booking_id=%s event_id=%s",
+                    booking.id,
+                    booking.calendar_event_id,
+                )
+
+            self._repository.update_fields(
+                booking,
+                requested_new_slot_start_at=None,
+                requested_new_slot_end_at=None,
+                previous_slot_start_at=booking.previous_slot_start_at or booking.slot_start_at,
+                previous_slot_end_at=booking.previous_slot_end_at or booking.slot_end_at,
+                slot_start_at=None,
+                slot_end_at=None,
+                calendar_event_id=None,
+                expires_at=None,
+            )
+            self._transition_status(
+                session=session,
+                booking=booking,
+                new_status="canceled_by_admin",
+                changed_by=f"admin:{admin_telegram_user_id}",
+            )
+            session.flush()
+            logger.info(
+                "Confirmed booking canceled by admin: booking_id=%s admin_telegram_user_id=%s",
+                booking.id,
+                admin_telegram_user_id,
+            )
+            return BookingDecisionResult(booking=booking, user=user)
+
     def cancel_booking_by_user(
         self,
         booking_id: int,
