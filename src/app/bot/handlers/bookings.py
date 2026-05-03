@@ -196,6 +196,25 @@ def _slots_word(count: int) -> str:
     return "слотов"
 
 
+def _format_duration(minutes: int | None) -> str:
+    if not minutes:
+        return "—"
+    return f"{minutes} мин."
+
+
+def _user_status_badge(status: str) -> str:
+    mapping = {
+        "draft": "📝 Черновик",
+        "pending_decision": "🟡 На подтверждении",
+        "confirmed": "✅ Подтверждена",
+        "rejected": "❌ Не подтверждена",
+        "cancelled_by_user": "🚫 Отменена",
+        "cancelled_by_admin": "🚫 Отменена",
+        "reschedule_pending_decision": "🔁 Перенос на подтверждении",
+    }
+    return mapping.get(status, "ℹ️ В обработке")
+
+
 def _format_booking_card_line(booking) -> str:
     slot_line = "—"
     if booking.slot_start_at and booking.slot_end_at:
@@ -203,38 +222,21 @@ def _format_booking_card_line(booking) -> str:
         end_at = booking.slot_end_at
         slot_line = f"{start_at.strftime('%d.%m %H:%M')} - {end_at.strftime('%H:%M')}"
 
-    expires_line = booking.expires_at.strftime('%d.%m %H:%M') if booking.expires_at else "—"
-    requested_line = "—"
-    if booking.requested_new_slot_start_at and booking.requested_new_slot_end_at:
-        requested_line = (
-            f"{booking.requested_new_slot_start_at.strftime('%d.%m %H:%M')} - "
-            f"{booking.requested_new_slot_end_at.strftime('%H:%M')}"
-        )
-    previous_line = "—"
-    if booking.previous_slot_start_at and booking.previous_slot_end_at:
-        previous_line = (
-            f"{booking.previous_slot_start_at.strftime('%d.%m %H:%M')} - "
-            f"{booking.previous_slot_end_at.strftime('%H:%M')}"
-        )
-
     return (
-        f"Заявка #{booking.id}\n"
+        f"{_user_status_badge(booking.status)}\n\n"
         f"Тема: {booking.topic or '—'}\n"
         f"Формат: {booking.format or '—'}\n"
-        f"Длительность: {booking.duration_minutes or '—'}\n"
-        f"Слот: {slot_line}\n"
-        f"Запрошен новый слот: {requested_line}\n"
-        f"Предыдущий слот: {previous_line}\n"
-        f"Статус: {booking.status}\n"
-        f"TTL до: {expires_line}\n"
+        f"Длительность: {_format_duration(booking.duration_minutes)}\n"
+        f"Дата и время: {slot_line} (MSK)\n"
     )
 
 
 def _format_booking_list_line(booking) -> str:
-    slot_line = "—"
+    slot_line = "время пока не выбрано"
     if booking.slot_start_at and booking.slot_end_at:
         slot_line = f"{booking.slot_start_at.strftime('%d.%m %H:%M')} - {booking.slot_end_at.strftime('%H:%M')}"
-    return f"Заявка #{booking.id} | {booking.status} | {slot_line} | {booking.topic or 'без темы'}"
+    topic = booking.topic or "без темы"
+    return f"{_user_status_badge(booking.status)}\n{slot_line}\nТема: {topic}"
 
 
 def _format_admin_booking_card(booking, user) -> str:
@@ -904,8 +906,8 @@ def build_booking_router(settings: Settings, session_factory: sessionmaker) -> R
         role = UserRole(data["role"])
         await state.clear()
         await message.answer(
-            "Заявка отправлена администратору на подтверждение.\n"
-            "Слот временно удержан до принятия решения.\n\n"
+            "🟡 Заявка отправлена на подтверждение.\n"
+            "Мы сообщим, как только администратор примет решение.\n\n"
             + _format_booking_card_line(booking),
             reply_markup=_main_menu_for(role),
         )
@@ -935,7 +937,7 @@ def build_booking_router(settings: Settings, session_factory: sessionmaker) -> R
             telegram_user.id,
             len(bookings),
         )
-        await message.answer(f"Найдено активных заявок: {len(bookings)}")
+        await message.answer(f"📂 Активных заявок: {len(bookings)}")
         for booking in bookings:
             await message.answer(
                 _format_booking_list_line(booking),
@@ -1007,7 +1009,7 @@ def build_booking_router(settings: Settings, session_factory: sessionmaker) -> R
         logger.info("Booking canceled by user via callback: booking_id=%s user_id=%s", booking.id, user.id)
         if callback.message:
             await callback.message.answer(
-                "Заявка отменена.\n\n" + _format_booking_card_line(booking),
+                "🚫 Заявка отменена.\n\n" + _format_booking_card_line(booking),
                 reply_markup=None,
             )
         await notify_admin_about_user_cancellation(callback.bot, user, booking)
@@ -1288,8 +1290,7 @@ def build_booking_router(settings: Settings, session_factory: sessionmaker) -> R
                 await message.bot.send_message(
                     chat_id=item.user_telegram_user_id,
                     text=(
-                        "Встреча отменена администратором: день закрыт.\n"
-                        f"Заявка #{item.booking_id}\n"
+                        "🚫 Встреча отменена: этот день закрыт администратором.\n"
                         "Нажмите кнопку ниже, чтобы выбрать другое время."
                     ),
                     reply_markup=choose_other_time_keyboard(item.booking_id),
@@ -2225,8 +2226,9 @@ def build_booking_router(settings: Settings, session_factory: sessionmaker) -> R
             callback=callback,
             user_telegram_user_id=result.user.telegram_user_id,
             text=(
-                "Ваша заявка подтверждена администратором.\n\n"
+                "✅ Встреча подтверждена.\n\n"
                 + _format_booking_card_line(result.booking)
+                + "\nЕсли планы изменятся, откройте «📂 Мои заявки» и выберите действие."
             ),
         )
 
@@ -2275,8 +2277,8 @@ def build_booking_router(settings: Settings, session_factory: sessionmaker) -> R
             callback=callback,
             user_telegram_user_id=result.user.telegram_user_id,
             text=(
-                "Администратор отклонил заявку.\n"
-                "Слот освобожден. Вы можете создать новую заявку."
+                "❌ Заявка не подтверждена.\n"
+                "Слот освобожден. Вы можете создать новую заявку в любое время."
             ),
         )
 
