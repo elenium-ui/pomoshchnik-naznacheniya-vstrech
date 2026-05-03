@@ -88,6 +88,12 @@ class BookingService:
             logger.info("Admin queue bookings listed: count=%s", len(bookings))
             return bookings
 
+    def list_confirmed_bookings(self, limit: int = 20) -> list[Booking]:
+        with self._session_scope() as session:
+            bookings = self._repository.list_confirmed(session=session, limit=limit)
+            logger.info("Admin confirmed bookings listed: count=%s", len(bookings))
+            return bookings
+
     def get_booking_for_user(self, booking_id: int, user_id: int) -> Booking:
         with self._session_scope() as session:
             booking = self._repository.get_by_id_for_user(session, booking_id=booking_id, user_id=user_id)

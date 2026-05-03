@@ -16,3 +16,14 @@ def admin_booking_actions_keyboard(booking_id: int) -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+
+def admin_bookings_view_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📥 На подтверждении", callback_data="admin:view:queue"),
+                InlineKeyboardButton(text="✅ Подтвержденные", callback_data="admin:view:confirmed"),
+            ]
+        ]
+    )

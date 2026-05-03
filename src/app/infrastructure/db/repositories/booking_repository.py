@@ -84,6 +84,15 @@ class BookingRepository:
             .all()
         )
 
+    def list_confirmed(self, session: Session, limit: int = 50) -> list[Booking]:
+        return (
+            session.query(Booking)
+            .filter(Booking.status == "confirmed")
+            .order_by(Booking.updated_at.desc(), Booking.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
     def count_future_active_for_limit(self, session: Session, user_id: int, now_msk_naive: datetime) -> int:
         # Future bookings that must be counted for the user quota (7).
         return (

@@ -34,7 +34,7 @@ from app.bot.keyboards.booking import (
     optional_skip_keyboard,
     slot_selection_keyboard,
 )
-from app.bot.keyboards.admin_booking import admin_booking_actions_keyboard
+from app.bot.keyboards.admin_booking import admin_booking_actions_keyboard, admin_bookings_view_keyboard
 from app.bot.keyboards.admin_settings import (
     BTN_ADD_BLOCK,
     BTN_ADD_WINDOW,
@@ -215,20 +215,26 @@ def _user_status_badge(status: str) -> str:
     return mapping.get(status, "ℹ️ В обработке")
 
 
-def _format_booking_card_line(booking) -> str:
+def _format_booking_card_line(booking, include_status_badge: bool = True) -> str:
     slot_line = "—"
     if booking.slot_start_at and booking.slot_end_at:
         start_at = booking.slot_start_at
         end_at = booking.slot_end_at
         slot_line = f"{start_at.strftime('%d.%m %H:%M')} - {end_at.strftime('%H:%M')}"
 
-    return (
-        f"{_user_status_badge(booking.status)}\n\n"
-        f"Тема: {booking.topic or '—'}\n"
-        f"Формат: {booking.format or '—'}\n"
-        f"Длительность: {_format_duration(booking.duration_minutes)}\n"
-        f"Дата и время: {slot_line} (MSK)\n"
+    lines = []
+    if include_status_badge:
+        lines.append(_user_status_badge(booking.status))
+        lines.append("")
+    lines.extend(
+        [
+            f"Тема: {booking.topic or '—'}",
+            f"Формат: {booking.format or '—'}",
+            f"Длительность: {_format_duration(booking.duration_minutes)}",
+            f"Дата и время: {slot_line} (MSK)",
+        ]
     )
+    return "\n".join(lines)
 
 
 def _format_booking_list_line(booking) -> str:
@@ -908,7 +914,7 @@ def build_booking_router(settings: Settings, session_factory: sessionmaker) -> R
         await message.answer(
             "🟡 Заявка отправлена на подтверждение.\n"
             "Мы сообщим, как только администратор примет решение.\n\n"
-            + _format_booking_card_line(booking),
+            + _format_booking_card_line(booking, include_status_badge=False),
             reply_markup=_main_menu_for(role),
         )
 
@@ -1009,7 +1015,7 @@ def build_booking_router(settings: Settings, session_factory: sessionmaker) -> R
         logger.info("Booking canceled by user via callback: booking_id=%s user_id=%s", booking.id, user.id)
         if callback.message:
             await callback.message.answer(
-                "🚫 Заявка отменена.\n\n" + _format_booking_card_line(booking),
+                "🚫 Заявка отменена.\n\n" + _format_booking_card_line(booking, include_status_badge=False),
                 reply_markup=None,
             )
         await notify_admin_about_user_cancellation(callback.bot, user, booking)
@@ -2160,6 +2166,13 @@ def build_booking_router(settings: Settings, session_factory: sessionmaker) -> R
             await message.answer("Доступно только администратору.")
             return
 
+        await message.answer(
+            "Раздел заявок администратора. Выберите, что показать:",
+            reply_markup=admin_bookings_view_keyboard(),
+        )
+        await _send_admin_queue_bookings(message)
+
+    async def _send_admin_queue_bookings(message: Message) -> None:
         bookings = booking_service.list_pending_decision_bookings(limit=20)
         if not bookings:
             await message.answer("В очереди админ-решений сейчас нет заявок.")
@@ -2178,6 +2191,46 @@ def build_booking_router(settings: Settings, session_factory: sessionmaker) -> R
                 _format_admin_booking_card(booking, user),
                 reply_markup=admin_booking_actions_keyboard(booking.id),
             )
+
+    async def _send_admin_confirmed_bookings(message: Message) -> None:
+        bookings = booking_service.list_confirmed_bookings(limit=20)
+        if not bookings:
+            await message.answer("Подтвержденных заявок пока нет.")
+            return
+
+        logger.info(
+            "Admin confirmed bookings opened: admin_telegram_user_id=%s count=%s",
+            message.from_user.id if message.from_user else None,
+            len(bookings),
+        )
+        await message.answer(f"✅ Подтвержденных заявок: {len(bookings)}")
+        for booking in bookings:
+            user = user_service.get_user_by_id(booking.user_id)
+            await message.answer(_format_admin_booking_card(booking, user))
+
+    @router.callback_query(F.data == "admin:view:queue")
+    async def admin_view_queue_bookings(callback: CallbackQuery) -> None:
+        if not callback.from_user:
+            return
+        role = user_service.resolve_role(callback.from_user.id, settings.ADMIN_USER_ID)
+        if role != UserRole.ADMIN:
+            await callback.answer("Недостаточно прав.", show_alert=True)
+            return
+        if callback.message:
+            await _send_admin_queue_bookings(callback.message)
+        await callback.answer()
+
+    @router.callback_query(F.data == "admin:view:confirmed")
+    async def admin_view_confirmed_bookings(callback: CallbackQuery) -> None:
+        if not callback.from_user:
+            return
+        role = user_service.resolve_role(callback.from_user.id, settings.ADMIN_USER_ID)
+        if role != UserRole.ADMIN:
+            await callback.answer("Недостаточно прав.", show_alert=True)
+            return
+        if callback.message:
+            await _send_admin_confirmed_bookings(callback.message)
+        await callback.answer()
 
     @router.callback_query(F.data.startswith("admin:confirm:"))
     async def admin_confirm_booking(callback: CallbackQuery) -> None:
@@ -2227,7 +2280,7 @@ def build_booking_router(settings: Settings, session_factory: sessionmaker) -> R
             user_telegram_user_id=result.user.telegram_user_id,
             text=(
                 "✅ Встреча подтверждена.\n\n"
-                + _format_booking_card_line(result.booking)
+                + _format_booking_card_line(result.booking, include_status_badge=False)
                 + "\nЕсли планы изменятся, откройте «📂 Мои заявки» и выберите действие."
             ),
         )
