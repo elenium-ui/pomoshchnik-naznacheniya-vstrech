@@ -4,7 +4,7 @@ import logging
 
 from aiogram import Bot
 
-from app.bot.runtime import run_polling_bot
+from app.bot.runtime import run_bot
 from app.config import load_settings
 from app.infrastructure.db.session import build_engine, build_session_factory, check_database_connection
 from app.logging_config import setup_logging
@@ -31,7 +31,7 @@ def main() -> None:
     parser.add_argument(
         "--run-bot",
         action="store_true",
-        help="Run Telegram bot in long polling mode.",
+        help="Run Telegram bot (mode from TELEGRAM_DELIVERY_MODE: polling/webhook).",
     )
     parser.add_argument(
         "--run-jobs-once",
@@ -55,7 +55,7 @@ def main() -> None:
         return
 
     if args.run_bot:
-        asyncio.run(run_polling_bot(settings))
+        asyncio.run(run_bot(settings))
         return
 
     if args.run_jobs_once:

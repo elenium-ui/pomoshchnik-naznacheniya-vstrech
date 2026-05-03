@@ -1,0 +1,13 @@
+services:
+  meeting-bot:
+    container_name: meeting-booking-bot
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./secrets:/app/secrets:ro

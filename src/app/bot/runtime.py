@@ -4,6 +4,9 @@ import asyncio
 import logging
 
 from aiogram import Bot
+from aiohttp import web
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from aiogram.types import BotCommand, MenuButtonCommands
 
 from app.bot.dispatcher import build_dispatcher
 from app.config import Settings
@@ -31,18 +34,37 @@ async def _background_jobs_loop(
         await asyncio.sleep(interval_seconds)
 
 
+async def _configure_telegram_ui(bot: Bot) -> None:
+    """Set command menu so user can tap /start without manual typing."""
+    try:
+        await bot.set_my_commands(
+            [
+                BotCommand(command="start", description="Открыть главное меню"),
+                BotCommand(command="admin", description="Открыть меню администратора"),
+            ]
+        )
+        await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+        logger.info("Telegram command menu configured.")
+    except Exception:
+        logger.exception("Failed to configure Telegram command menu.")
+
+
 async def run_polling_bot(settings: Settings) -> None:
     engine = build_engine(settings.DATABASE_URL, settings.LOG_LEVEL)
     check_database_connection(engine)
     session_factory = build_session_factory(engine)
 
     bot = Bot(token=settings.BOT_TOKEN)
+    await _configure_telegram_ui(bot)
     dp = build_dispatcher(settings=settings, session_factory=session_factory)
     jobs_service = JobsService(session_factory=session_factory)
     jobs_task = asyncio.create_task(_background_jobs_loop(jobs_service=jobs_service, bot=bot, interval_seconds=60))
 
     logger.info("Starting Telegram bot in long polling mode.")
     try:
+        await bot.delete_webhook(
+            drop_pending_updates=settings.TELEGRAM_DROP_PENDING_UPDATES_ON_START
+        )
         await dp.start_polling(bot)
     finally:
         jobs_task.cancel()
@@ -53,3 +75,83 @@ async def run_polling_bot(settings: Settings) -> None:
         await bot.session.close()
         engine.dispose()
         logger.info("Bot stopped.")
+
+
+def _build_webhook_url(settings: Settings) -> str:
+    base = (settings.TELEGRAM_WEBHOOK_BASE_URL or "").rstrip("/")
+    path = settings.TELEGRAM_WEBHOOK_PATH
+    return f"{base}{path}"
+
+
+async def _health_handler(_: web.Request) -> web.Response:
+    return web.json_response({"status": "ok"})
+
+
+async def run_webhook_bot(settings: Settings) -> None:
+    engine = build_engine(settings.DATABASE_URL, settings.LOG_LEVEL)
+    check_database_connection(engine)
+    session_factory = build_session_factory(engine)
+
+    bot = Bot(token=settings.BOT_TOKEN)
+    await _configure_telegram_ui(bot)
+    dp = build_dispatcher(settings=settings, session_factory=session_factory)
+    jobs_service = JobsService(session_factory=session_factory)
+    jobs_task = asyncio.create_task(
+        _background_jobs_loop(jobs_service=jobs_service, bot=bot, interval_seconds=60)
+    )
+
+    app = web.Application()
+    app.router.add_get("/health", _health_handler)
+
+    webhook_handler = SimpleRequestHandler(
+        dispatcher=dp,
+        bot=bot,
+        secret_token=settings.TELEGRAM_WEBHOOK_SECRET,
+    )
+    webhook_handler.register(app, path=settings.TELEGRAM_WEBHOOK_PATH)
+    setup_application(app, dp, bot=bot)
+
+    webhook_url = _build_webhook_url(settings)
+    await bot.set_webhook(
+        url=webhook_url,
+        secret_token=settings.TELEGRAM_WEBHOOK_SECRET,
+        drop_pending_updates=settings.TELEGRAM_DROP_PENDING_UPDATES_ON_START,
+    )
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(
+        runner,
+        host=settings.TELEGRAM_WEBHOOK_LISTEN_HOST,
+        port=settings.TELEGRAM_WEBHOOK_LISTEN_PORT,
+    )
+    await site.start()
+
+    logger.info(
+        "Starting Telegram bot in webhook mode: listen=%s:%s webhook_url=%s",
+        settings.TELEGRAM_WEBHOOK_LISTEN_HOST,
+        settings.TELEGRAM_WEBHOOK_LISTEN_PORT,
+        webhook_url,
+    )
+
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    finally:
+        jobs_task.cancel()
+        try:
+            await jobs_task
+        except asyncio.CancelledError:
+            logger.info("Background scheduler stopped.")
+        await runner.cleanup()
+        await bot.session.close()
+        engine.dispose()
+        logger.info("Bot stopped.")
+
+
+async def run_bot(settings: Settings) -> None:
+    mode = settings.TELEGRAM_DELIVERY_MODE.strip().lower()
+    if mode == "webhook":
+        await run_webhook_bot(settings)
+        return
+    await run_polling_bot(settings)

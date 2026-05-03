@@ -64,6 +64,10 @@ pip install ".[test]"
 PYTHONPATH=src python -m app.main --run-bot
 ```
 
+Режим запуска задается через `TELEGRAM_DELIVERY_MODE`:
+- `polling` (по умолчанию);
+- `webhook` (для production через HTTPS).
+
 ## Перезапуск бота
 
 1. Остановить текущий процесс в терминале (`Ctrl+C`).
@@ -91,6 +95,13 @@ PYTHONPATH=src python -m app.main --run-jobs-once
 - `BOT_TOKEN` — токен Telegram бота;
 - `DATABASE_URL` — строка подключения к базе;
 - `TIMEZONE` — для MVP `Europe/Moscow`.
+- `TELEGRAM_DELIVERY_MODE` — `polling` или `webhook`;
+- `TELEGRAM_WEBHOOK_BASE_URL` — например `https://bot.example.com`;
+- `TELEGRAM_WEBHOOK_PATH` — путь webhook, по умолчанию `/telegram/webhook`;
+- `TELEGRAM_WEBHOOK_SECRET` — секрет заголовка `X-Telegram-Bot-Api-Secret-Token`;
+- `TELEGRAM_WEBHOOK_LISTEN_HOST` — host для HTTP сервера webhook (обычно `0.0.0.0`);
+- `TELEGRAM_WEBHOOK_LISTEN_PORT` — порт webhook сервера внутри контейнера (обычно `8080`);
+- `TELEGRAM_DROP_PENDING_UPDATES_ON_START` — удалять ли отложенные обновления при старте.
 
 Как поменять:
 1. Открыть `.env` в корне проекта.
@@ -134,3 +145,17 @@ rg -n "ERROR|Traceback|TelegramConflictError" logs/app.log logs/error.log -S
 
 - `logs/app.log` — рабочие события;
 - `logs/error.log` — ошибки.
+
+## Production deploy (VPS, HTTPS webhook)
+
+Для production используйте:
+- `.env.production.example`
+- `docker-compose.production.yml`
+- `docs/DEPLOY_VPS.md`
+- пример Caddy-конфига: `deploy/Caddyfile.meeting-bot.example`
+
+## CI/CD автодеплой (Этап 8)
+
+- workflow: `.github/workflows/deploy-production.yml`
+- deploy-скрипт на сервере: `scripts/deploy-on-server.sh`
+- ручная настройка GitHub Variables/Secrets: `docs/AUTO_DEPLOY_GITHUB.md`

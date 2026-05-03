@@ -1,0 +1,13 @@
+# Replace bot.example.com with your real domain/subdomain.
+bot.example.com {
+    encode zstd gzip
+    handle /telegram/webhook* {
+        reverse_proxy 127.0.0.1:18080
+    }
+    handle /health* {
+        reverse_proxy 127.0.0.1:18080
+    }
+    handle {
+        respond 404
+    }
+}
