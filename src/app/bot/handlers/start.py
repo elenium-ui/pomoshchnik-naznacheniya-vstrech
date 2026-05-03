@@ -15,6 +15,11 @@ from app.bot.keyboards.main import admin_main_keyboard, user_main_keyboard
 
 logger = logging.getLogger(__name__)
 
+WELCOME_TEXT = (
+    "Добро пожаловать! Через этого бота вы можете записаться на встречу к Елене Разумовой.\n"
+    "Выберите действие в меню ниже: новая заявка, мои заявки и управление текущими записями."
+)
+
 
 def build_start_router(settings: Settings, session_factory: sessionmaker) -> Router:
     router = Router(name="start")
@@ -46,13 +51,13 @@ def build_start_router(settings: Settings, session_factory: sessionmaker) -> Rou
 
         if role == UserRole.ADMIN:
             await message.answer(
-                "Вы вошли как администратор. Доступно базовое админ-меню.",
+                WELCOME_TEXT,
                 reply_markup=admin_main_keyboard(),
             )
             return
 
         await message.answer(
-            "Добро пожаловать! Доступно базовое пользовательское меню.",
+            WELCOME_TEXT,
             reply_markup=user_main_keyboard(),
         )
 
