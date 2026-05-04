@@ -37,7 +37,7 @@
 ## 3. Общий прогресс по этапам
 
 - `[x]` Этап 0. Предстартовая подготовка и рабочие границы
-- `[ ]` Этап 1. Каркас Mini App frontend и API backend
+- `[!]` Этап 1. Каркас Mini App frontend и API backend
 - `[ ]` Этап 2. Telegram auth, App Shell и переключение ролей
 - `[ ]` Этап 3. Клиентский сценарий новой заявки
 - `[ ]` Этап 4. Клиентские разделы: активные заявки, история, профиль
@@ -246,13 +246,30 @@
 
 ### Чек-лист этапа 1
 
-- `[ ]` Создан каркас `frontend/miniapp`
-- `[ ]` Создан каркас `src/app/web`
-- `[ ]` Поднят базовый API runtime
-- `[ ]` Поднят базовый frontend runtime
-- `[ ]` Добавлен базовый logging для API
-- `[ ]` Добавлены базовые smoke/health проверки
-- `[ ]` Проверено, что существующий бот не сломан
+- `[x]` Создан каркас `frontend/miniapp`
+- `[x]` Создан каркас `src/app/web`
+- `[x]` Поднят базовый API runtime
+- `[!]` Поднят базовый frontend runtime
+- `[x]` Добавлен базовый logging для API
+- `[x]` Добавлены базовые smoke/health проверки
+- `[!]` Проверено, что существующий бот не сломан
+
+### Итог этапа 1 (2026-05-04)
+
+Что реализовано:
+- добавлен backend shell Mini App API (`src/app/web/**`) на FastAPI с маршрутами `/health` и `/api/miniapp/smoke`;
+- добавлен отдельный runtime API с базовым logging bootstrap (`python -m app.web.runtime`);
+- создан frontend shell (`frontend/miniapp/**`) на Vite + React + TypeScript с техническим экраном App Shell;
+- добавлен mini-app тестовый контур (`tests/miniapp/**`) и API smoke/health тесты.
+
+Что проверено автоматически:
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m pytest tests/miniapp/api/test_health_routes.py` -> `2 passed`;
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m pytest tests/unit/test_roles.py` -> `2 passed`;
+- `PYTHONPATH=src python3 -c "from app.web.api.app import app; print(app.title); print('ROUTES', len(app.routes))"` -> app импортируется и маршруты подключены.
+
+Ограничения текущей среды:
+- `npm` отсутствует в окружении, поэтому автоматический запуск frontend runtime не выполнен в этом шаге;
+- регрессия бота проверена точечно (unit), полный интеграционный прогон не выполнялся.
 
 ## Этап 2. Telegram auth, App Shell и переключение ролей
 

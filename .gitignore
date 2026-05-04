@@ -27,3 +27,7 @@ data/*.db
 .DS_Store
 .idea/
 .vscode/
+
+# Frontend
+node_modules/
+dist/

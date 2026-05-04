@@ -159,3 +159,31 @@ rg -n "ERROR|Traceback|TelegramConflictError" logs/app.log logs/error.log -S
 - workflow: `.github/workflows/deploy-production.yml`
 - deploy-скрипт на сервере: `scripts/deploy-on-server.sh`
 - ручная настройка GitHub Variables/Secrets: `docs/AUTO_DEPLOY_GITHUB.md`
+
+## Mini App Stage 1 (shell)
+
+Этап 1 добавляет изолированный каркас Mini App без бизнес-логики:
+- backend API shell: `src/app/web/**`;
+- frontend shell: `frontend/miniapp/**`;
+- mini-app тестовый контур: `tests/miniapp/**`.
+
+### Запуск API shell локально
+
+```bash
+PYTHONPATH=src python -m app.web.runtime
+```
+
+Проверка:
+- `http://localhost:8090/health`
+- `http://localhost:8090/api/miniapp/smoke`
+
+### Запуск frontend shell локально
+
+```bash
+cd frontend/miniapp
+npm install
+npm run dev
+```
+
+Проверка:
+- `http://localhost:5173`
