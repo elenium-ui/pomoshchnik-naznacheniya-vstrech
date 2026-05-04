@@ -202,3 +202,16 @@ npm run dev
 Локальный debug frontend без Telegram:
 - можно передать `initData` через query `tgInitData`:
   - `http://localhost:5173/?tgInitData=<telegram_init_data>`
+
+## Mini App Stage 3 (new booking flow)
+
+Добавлено:
+- клиентский flow `Новая заявка` (8 шагов) в frontend shell;
+- backend API для создания draft, сохранения данных, загрузки слотов и финальной отправки заявки;
+- серверная проверка конфликтов слота перед отправкой.
+
+Новые API маршруты:
+- `POST /api/miniapp/bookings/new/session`
+- `PUT /api/miniapp/bookings/{booking_id}/details`
+- `GET /api/miniapp/bookings/slots?init_data=...&duration_minutes=...`
+- `POST /api/miniapp/bookings/{booking_id}/submit`

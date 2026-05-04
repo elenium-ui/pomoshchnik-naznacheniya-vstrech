@@ -1,0 +1,151 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(18, 34, 48, 0.35);
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  padding: 10px;
+}
+
+.panel {
+  width: min(720px, 100%);
+  background: #ffffff;
+  border-radius: 20px 20px 14px 14px;
+  border: 1px solid rgba(112, 141, 164, 0.24);
+  padding: 14px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.closeButton {
+  border: 1px solid rgba(112, 141, 164, 0.24);
+  background: #fff;
+  border-radius: 10px;
+  height: 34px;
+  padding: 0 12px;
+}
+
+.progress {
+  margin: 8px 0 12px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.field {
+  display: block;
+}
+
+.field span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  border: 1px solid rgba(112, 141, 164, 0.3);
+  border-radius: 12px;
+  height: 42px;
+  padding: 0 12px;
+  font-size: 14px;
+}
+
+.field textarea {
+  min-height: 90px;
+  padding-top: 10px;
+  resize: vertical;
+}
+
+.segment {
+  display: grid;
+  gap: 10px;
+}
+
+.segment p {
+  margin: 0;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+}
+
+.rowWrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.passive,
+.active {
+  border: 1px solid rgba(112, 141, 164, 0.28);
+  height: 38px;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--color-text-secondary);
+  padding: 0 12px;
+}
+
+.active {
+  background: #eaf4ff;
+  color: #1d3347;
+  border-color: rgba(66, 149, 223, 0.35);
+}
+
+.footer {
+  margin-top: 14px;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.mainButton,
+.ghostButton {
+  height: 40px;
+  border-radius: 12px;
+  padding: 0 14px;
+  font-weight: 600;
+}
+
+.mainButton {
+  border: none;
+  background: #cbe6ff;
+  color: #1f3f55;
+}
+
+.ghostButton {
+  border: 1px solid rgba(112, 141, 164, 0.28);
+  background: #fff;
+  color: var(--color-text-secondary);
+}
+
+.errorText {
+  margin-top: 10px;
+  color: #b2474e;
+  font-size: 13px;
+}
+
+.errorBox {
+  background: #fff;
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.summaryLine {
+  color: var(--color-text-secondary);
+}
+

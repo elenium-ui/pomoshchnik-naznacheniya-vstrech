@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { createAuthSession, switchAuthMode } from "../api/miniapp";
 import type { AuthSessionResponse, ModeName } from "../api/types";
+import { NewBookingFlow } from "../features/new-booking/NewBookingFlow";
 import { getTelegramInitData, getTelegramWebApp } from "../telegram/webapp";
 import styles from "./AppShellPage.module.scss";
 
@@ -34,6 +35,7 @@ export function AppShellPage() {
   const initData = useMemo(() => getTelegramInitData(), []);
   const [currentMode, setCurrentMode] = useState<ModeName | null>(null);
   const [activeTabKey, setActiveTabKey] = useState<string>("home");
+  const [newBookingOpen, setNewBookingOpen] = useState(false);
 
   useEffect(() => {
     const webApp = getTelegramWebApp();
@@ -167,6 +169,11 @@ export function AppShellPage() {
                 ? "Вы в админском режиме. Здесь будет центр управления заявками и расписанием."
                 : "Здесь можно выбрать время, отправить заявку и отслеживать её статус."}
             </p>
+            {resolvedMode === "client" ? (
+              <button type="button" className={styles.primaryCta} onClick={() => setNewBookingOpen(true)}>
+                Записаться
+              </button>
+            ) : null}
             <div className={styles.featureCard}>
               <h3>Чем могу быть полезна</h3>
               <ul>
@@ -217,6 +224,9 @@ export function AppShellPage() {
           ))}
         </nav>
       </section>
+      {newBookingOpen && resolvedMode === "client" ? (
+        <NewBookingFlow initData={initData} onClose={() => setNewBookingOpen(false)} />
+      ) : null}
     </main>
   );
 }

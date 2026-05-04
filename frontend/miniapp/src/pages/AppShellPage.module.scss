@@ -94,6 +94,17 @@
   padding: 14px;
 }
 
+.primaryCta {
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(140deg, #bfe3ff 0%, #d2f2dd 100%);
+  color: #21435a;
+  font-weight: 700;
+  height: 44px;
+  padding: 0 16px;
+  margin-bottom: 14px;
+}
+
 .featureCard h3 {
   margin: 0 0 8px;
   color: var(--color-text-primary);
