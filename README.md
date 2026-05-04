@@ -187,3 +187,18 @@ npm run dev
 
 Проверка:
 - `http://localhost:5173`
+
+## Mini App Stage 2 (auth + role shell)
+
+Добавлено:
+- backend-валидация Telegram `initData`;
+- API-сессия пользователя и проверка доступа к режимам `client/admin`;
+- стартовый экран, нижняя навигация и переключение режимов для `ADMIN_USER_ID`.
+
+Новые API маршруты:
+- `POST /api/miniapp/auth/session`
+- `POST /api/miniapp/auth/mode`
+
+Локальный debug frontend без Telegram:
+- можно передать `initData` через query `tgInitData`:
+  - `http://localhost:5173/?tgInitData=<telegram_init_data>`
