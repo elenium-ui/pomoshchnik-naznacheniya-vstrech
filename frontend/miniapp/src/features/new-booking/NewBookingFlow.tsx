@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
+import "dayjs/locale/ru";
 import { useMutation } from "@tanstack/react-query";
 
 import {
@@ -27,6 +28,31 @@ type FormState = {
 };
 
 const durationOptions: Array<15 | 30 | 45 | 60 | 90> = [15, 30, 45, 60, 90];
+dayjs.locale("ru");
+
+function capitalize(text: string): string {
+  return text.length ? text[0].toUpperCase() + text.slice(1) : text;
+}
+
+function formatWeekLabel(weekKey: string): string {
+  const start = dayjs(weekKey);
+  const end = start.add(6, "day");
+  const sameYear = start.year() === end.year();
+  return sameYear
+    ? `Неделя ${start.format("D MMMM")} - ${end.format("D MMMM")} ${start.format("YYYY")} года`
+    : `Неделя ${start.format("D MMMM YYYY")} - ${end.format("D MMMM YYYY")}`;
+}
+
+function formatDayLabel(dayKey: string): string {
+  const date = dayjs(dayKey);
+  return `${date.format("D MMMM")}, ${capitalize(date.format("dddd"))}`;
+}
+
+function formatSlotRange(startAt: string, endAt: string): string {
+  const start = dayjs(startAt);
+  const end = dayjs(endAt);
+  return `${start.format("D MMMM")}, ${capitalize(start.format("dddd"))} ${start.format("HH:mm")} - ${end.format("HH:mm")}`;
+}
 
 export function NewBookingFlow({ initData, onClose }: Props) {
   const [bookingId, setBookingId] = useState<number | null>(null);
@@ -132,6 +158,17 @@ export function NewBookingFlow({ initData, onClose }: Props) {
     () => (selectedDay && slotsData ? slotsData.time_options_by_day[selectedDay] ?? [] : []),
     [selectedDay, slotsData]
   );
+  const selectedWeekDays = useMemo(
+    () => (selectedWeek && slotsData ? slotsData.day_options_by_week[selectedWeek] ?? [] : []),
+    [selectedWeek, slotsData]
+  );
+  const weekOptions = slotsData?.week_options ?? [];
+  const selectedWeekIndex = Math.max(
+    0,
+    weekOptions.findIndex((option) => option.key === selectedWeek)
+  );
+  const bookingTitle =
+    form.topic.trim().length >= 3 ? `Тема встречи: ${form.topic.trim()}` : "Новая заявка";
 
   const phoneRequired = !usernameExists && form.email.trim().length === 0;
   const canGoNext =
@@ -165,6 +202,17 @@ export function NewBookingFlow({ initData, onClose }: Props) {
     setStep((prev) => Math.max(prev - 1, 1));
   }
 
+  function switchWeek(offset: -1 | 1) {
+    if (!weekOptions.length) {
+      return;
+    }
+    const candidateIndex = selectedWeekIndex + offset;
+    if (candidateIndex < 0 || candidateIndex >= weekOptions.length) {
+      return;
+    }
+    setSelectedWeek(weekOptions[candidateIndex].key);
+  }
+
   if (startMutation.isPending) {
     return <div className={styles.overlay}>Подготавливаем форму новой заявки...</div>;
   }
@@ -173,9 +221,14 @@ export function NewBookingFlow({ initData, onClose }: Props) {
       <div className={styles.overlay}>
         <div className={styles.errorBox}>
           <p>{startMutation.error.message}</p>
-          <button type="button" onClick={onClose}>
-            Закрыть
-          </button>
+          <div className={styles.errorActions}>
+            <button type="button" onClick={() => startMutation.mutate()}>
+              Попробовать снова
+            </button>
+            <button type="button" onClick={onClose}>
+              Закрыть
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -185,177 +238,196 @@ export function NewBookingFlow({ initData, onClose }: Props) {
     <div className={styles.overlay}>
       <section className={styles.panel}>
         <header className={styles.header}>
-          <h2>Новая заявка</h2>
-          <button type="button" onClick={onClose} className={styles.closeButton}>
-            Закрыть
-          </button>
+          <h2>{bookingTitle}</h2>
+          {step <= 8 ? (
+            <button type="button" onClick={onClose} className={styles.closeButton}>
+              Закрыть
+            </button>
+          ) : null}
         </header>
+        <div className={styles.body}>
+          {step <= 8 ? <p className={styles.progress}>Шаг {step} из 8</p> : null}
 
-        {step <= 8 ? <p className={styles.progress}>Шаг {step} из 8</p> : null}
-
-        {step === 1 ? (
-          <label className={styles.field}>
-            <span>Имя</span>
-            <input
-              value={form.name}
-              onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-              placeholder="Введите имя"
-            />
-          </label>
-        ) : null}
-
-        {step === 2 ? (
-          <label className={styles.field}>
-            <span>Тема встречи</span>
-            <input
-              value={form.topic}
-              onChange={(event) => setForm((prev) => ({ ...prev, topic: event.target.value }))}
-              placeholder="Например: управленческий учёт"
-            />
-          </label>
-        ) : null}
-
-        {step === 3 ? (
-          <div className={styles.segment}>
-            <p>Формат встречи</p>
-            <div className={styles.row}>
-              <button
-                type="button"
-                className={form.meetingFormat === "онлайн" ? styles.active : styles.passive}
-                onClick={() => setForm((prev) => ({ ...prev, meetingFormat: "онлайн" }))}
-              >
-                Онлайн
-              </button>
-              <button
-                type="button"
-                className={form.meetingFormat === "офлайн" ? styles.active : styles.passive}
-                onClick={() => setForm((prev) => ({ ...prev, meetingFormat: "офлайн" }))}
-              >
-                Офлайн
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        {step === 4 ? (
-          <div className={styles.segment}>
-            <p>Длительность</p>
-            <div className={styles.rowWrap}>
-              {durationOptions.map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={form.durationMinutes === value ? styles.active : styles.passive}
-                  onClick={() =>
-                    setForm((prev) => ({
-                      ...prev,
-                      durationMinutes: value
-                    }))
-                  }
-                >
-                  {value} мин
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
-        {step === 5 ? (
-          <div className={styles.segment}>
+          {step === 1 ? (
             <label className={styles.field}>
-              <span>Email (необязательно)</span>
+              <span>Имя</span>
               <input
-                value={form.email}
-                onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
-                placeholder="you@example.com"
+                value={form.name}
+                onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+                placeholder="Введите имя"
               />
             </label>
+          ) : null}
+
+          {step === 2 ? (
             <label className={styles.field}>
-              <span>Телефон {phoneRequired ? "(обязателен)" : "(опционально)"}</span>
+              <span>Тема встречи</span>
               <input
-                value={form.phone}
-                onChange={(event) => setForm((prev) => ({ ...prev, phone: event.target.value }))}
-                placeholder="+79991234567"
+                value={form.topic}
+                onChange={(event) => setForm((prev) => ({ ...prev, topic: event.target.value }))}
+                placeholder="Например: управленческий учёт"
               />
             </label>
-          </div>
-        ) : null}
+          ) : null}
 
-        {step === 6 ? (
-          <label className={styles.field}>
-            <span>Комментарий (необязательно)</span>
-            <textarea
-              value={form.comment}
-              onChange={(event) => setForm((prev) => ({ ...prev, comment: event.target.value }))}
-              placeholder="Уточнения по встрече"
-            />
-          </label>
-        ) : null}
-
-        {step === 7 ? (
-          <div className={styles.segment}>
-            <label className={styles.field}>
-              <span>Неделя</span>
-              <select value={selectedWeek} onChange={(event) => setSelectedWeek(event.target.value)}>
-                {slotsData?.week_options.map((option) => (
-                  <option key={option.key} value={option.key}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className={styles.field}>
-              <span>День</span>
-              <select value={selectedDay} onChange={(event) => setSelectedDay(event.target.value)}>
-                {(slotsData?.day_options_by_week[selectedWeek] ?? []).map((option) => (
-                  <option key={option.key} value={option.key}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className={styles.rowWrap}>
-              {currentSlots.map((slot) => (
+          {step === 3 ? (
+            <div className={styles.segment}>
+              <p className={styles.segmentTitle}>Формат встречи</p>
+              <div className={styles.optionColumn}>
                 <button
-                  key={slot.slot_key}
                   type="button"
-                  className={selectedSlot?.slot_key === slot.slot_key ? styles.active : styles.passive}
-                  onClick={() => setSelectedSlot(slot)}
+                  className={form.meetingFormat === "онлайн" ? styles.active : styles.passive}
+                  onClick={() => setForm((prev) => ({ ...prev, meetingFormat: "онлайн" }))}
                 >
-                  {slot.label}
+                  Онлайн
                 </button>
-              ))}
+                <button
+                  type="button"
+                  className={form.meetingFormat === "офлайн" ? styles.active : styles.passive}
+                  onClick={() => setForm((prev) => ({ ...prev, meetingFormat: "офлайн" }))}
+                >
+                  Офлайн
+                </button>
+              </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
 
-        {step === 8 ? (
-          <div className={styles.segment}>
-            <p className={styles.summaryLine}>Имя: {form.name}</p>
-            <p className={styles.summaryLine}>Тема: {form.topic}</p>
-            <p className={styles.summaryLine}>Формат: {form.meetingFormat}</p>
-            <p className={styles.summaryLine}>Длительность: {form.durationMinutes} мин</p>
-            <p className={styles.summaryLine}>
-              Слот:{" "}
-              {selectedSlot
-                ? `${dayjs(selectedSlot.starts_at).format("DD.MM HH:mm")} - ${dayjs(
-                    selectedSlot.ends_at
-                  ).format("HH:mm")}`
-                : "не выбран"}
-            </p>
-          </div>
-        ) : null}
+          {step === 4 ? (
+            <div className={styles.segment}>
+              <p className={styles.segmentTitle}>Длительность</p>
+              <div className={styles.optionColumn}>
+                {durationOptions.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={form.durationMinutes === value ? styles.active : styles.passive}
+                    onClick={() =>
+                      setForm((prev) => ({
+                        ...prev,
+                        durationMinutes: value
+                      }))
+                    }
+                  >
+                    {value} мин
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
-        {step === 9 && submitted ? (
-          <div className={styles.segment}>
-            <h3>Заявка отправлена</h3>
-            <p className={styles.summaryLine}>Статус: {submitted.status}</p>
-            <p className={styles.summaryLine}>
-              Слот: {dayjs(submitted.slot_start_at).format("DD.MM HH:mm")} -{" "}
-              {dayjs(submitted.slot_end_at).format("HH:mm")}
-            </p>
-          </div>
-        ) : null}
+          {step === 5 ? (
+            <div className={styles.segment}>
+              <label className={styles.field}>
+                <span>Email (необязательно)</span>
+                <input
+                  value={form.email}
+                  onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
+                  placeholder="you@example.com"
+                />
+              </label>
+              <label className={styles.field}>
+                <span>Телефон {phoneRequired ? "(обязателен)" : "(опционально)"}</span>
+                <input
+                  value={form.phone}
+                  onChange={(event) => setForm((prev) => ({ ...prev, phone: event.target.value }))}
+                  placeholder="+79991234567"
+                />
+              </label>
+            </div>
+          ) : null}
+
+          {step === 6 ? (
+            <label className={styles.field}>
+              <span>Комментарий (необязательно)</span>
+              <textarea
+                value={form.comment}
+                onChange={(event) => setForm((prev) => ({ ...prev, comment: event.target.value }))}
+                placeholder="Уточнения по встрече"
+              />
+            </label>
+          ) : null}
+
+          {step === 7 ? (
+            <div className={styles.segment}>
+              <p className={styles.segmentTitle}>Неделя</p>
+              <div className={styles.weekSwitcher}>
+                <button
+                  type="button"
+                  className={styles.weekArrow}
+                  onClick={() => switchWeek(-1)}
+                  disabled={selectedWeekIndex <= 0}
+                >
+                  ←
+                </button>
+                <div className={styles.weekLabel}>
+                  {weekOptions[selectedWeekIndex] ? formatWeekLabel(weekOptions[selectedWeekIndex].key) : "Неделя"}
+                </div>
+                <button
+                  type="button"
+                  className={styles.weekArrow}
+                  onClick={() => switchWeek(1)}
+                  disabled={selectedWeekIndex >= weekOptions.length - 1}
+                >
+                  →
+                </button>
+              </div>
+
+              <p className={styles.segmentTitle}>День</p>
+              <div className={styles.dayGrid}>
+                {selectedWeekDays.map((option) => (
+                  <button
+                    key={option.key}
+                    type="button"
+                    className={`${selectedDay === option.key ? styles.active : styles.passive} ${styles.centeredChip}`}
+                    onClick={() => setSelectedDay(option.key)}
+                  >
+                    {formatDayLabel(option.key)}
+                  </button>
+                ))}
+              </div>
+
+              <p className={styles.segmentTitle}>Свободное время</p>
+              <div className={styles.timeGrid}>
+                {currentSlots.map((slot) => (
+                  <button
+                    key={slot.slot_key}
+                    type="button"
+                    className={`${selectedSlot?.slot_key === slot.slot_key ? styles.active : styles.passive} ${styles.centeredChip}`}
+                    onClick={() => setSelectedSlot(slot)}
+                  >
+                    {slot.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {step === 8 ? (
+            <div className={styles.segment}>
+              <p className={styles.summaryLine}>Имя: {form.name}</p>
+              <p className={styles.summaryLine}>Тема: {form.topic}</p>
+              <p className={styles.summaryLine}>Формат: {form.meetingFormat}</p>
+              <p className={styles.summaryLine}>Длительность: {form.durationMinutes} мин</p>
+              <p className={styles.summaryLine}>
+                Слот:{" "}
+                {selectedSlot
+                  ? formatSlotRange(selectedSlot.starts_at, selectedSlot.ends_at)
+                  : "не выбран"}
+              </p>
+            </div>
+          ) : null}
+
+          {step === 9 && submitted ? (
+            <div className={`${styles.segment} ${styles.successCard}`}>
+              <h3>Заявка отправлена</h3>
+              <p className={styles.successText}>Заявка отправлена на согласование. Подтверждение придёт отдельно.</p>
+              {submitted.topic ? <p className={styles.summaryLine}>Тема: {submitted.topic}</p> : null}
+              <p className={styles.summaryLine}>
+                Время встречи: {formatSlotRange(submitted.slot_start_at, submitted.slot_end_at)}
+              </p>
+            </div>
+          ) : null}
+        </div>
 
         <footer className={styles.footer}>
           {step > 1 && step <= 8 ? (
@@ -391,4 +463,3 @@ export function NewBookingFlow({ initData, onClose }: Props) {
     </div>
   );
 }
-

@@ -60,6 +60,7 @@ export function saveBookingDraft(
   bookingId: number,
   payload: SaveBookingDraftRequest
 ): Promise<SaveBookingDraftResponse> {
+  // Use POST for broader compatibility in local/dev gateways that can block PUT.
   return postJson<SaveBookingDraftResponse>(`/api/miniapp/bookings/${bookingId}/details`, payload);
 }
 

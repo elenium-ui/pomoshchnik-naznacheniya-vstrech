@@ -188,6 +188,7 @@ def start_booking_session(
 
 
 @router.put("/{booking_id}/details", response_model=SaveBookingDraftResponse)
+@router.post("/{booking_id}/details", response_model=SaveBookingDraftResponse)
 def save_booking_details(
     booking_id: int,
     payload: SaveBookingDraftRequest,

@@ -127,6 +127,7 @@ export function AppShellPage() {
     navItems.find((item) => item.key === activeTabKey) ??
     navItems.find((item) => item.key === "home") ??
     navItems[0];
+  const isHomeTab = currentTab.key === "home";
   const canSwitchMode = authPayload.access.is_admin;
   const isProfileTab = currentTab.key === "profile";
 
@@ -134,13 +135,20 @@ export function AppShellPage() {
     <main className={styles.page}>
       <section className={styles.card}>
         <header className={styles.header}>
-          <div className={styles.brand}>ER Meet</div>
-          <p className={styles.brandSub}>запись на встречу</p>
-          <h1>Запись на встречу с Еленой</h1>
-          <p className={styles.lead}>
-            Вы попали в пространство записи к Елене Разумовой. Здесь можно выбрать удобное время,
-            отправить заявку на встречу и отслеживать её статус.
-          </p>
+          {isHomeTab ? (
+            <div className={styles.heroStack}>
+              <div className={styles.brand}>ER Meet</div>
+              <h1>Запись на встречу с Еленой</h1>
+              <div className={styles.photoPlaceholder} aria-hidden="true">
+                Фото
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className={styles.brand}>ER Meet</div>
+              <h1>Запись на встречу с Еленой</h1>
+            </>
+          )}
           {canSwitchMode ? (
             <div className={styles.modeSwitch}>
               <button
@@ -163,24 +171,25 @@ export function AppShellPage() {
 
         {currentTab.key === "home" ? (
           <section className={styles.content}>
-            <h2>Здравствуйте, {getFirstName(authPayload)}.</h2>
-            <p className={styles.softText}>
-              {resolvedMode === "admin"
-                ? "Вы в админском режиме. Здесь будет центр управления заявками и расписанием."
-                : "Здесь можно выбрать время, отправить заявку и отслеживать её статус."}
-            </p>
-            {resolvedMode === "client" ? (
-              <button type="button" className={styles.primaryCta} onClick={() => setNewBookingOpen(true)}>
-                Записаться
-              </button>
-            ) : null}
-            <div className={styles.featureCard}>
-              <h3>Чем могу быть полезна</h3>
-              <ul>
-                <li>Финансовые задачи и рабочие вопросы</li>
-                <li>Управленческий учёт и структурирование процессов</li>
-                <li>Вайб-кодинг, идеи, знакомство и спокойное живое общение</li>
-              </ul>
+            <div className={styles.contentTop}>
+              <div className={styles.featureCard}>
+                <h3>В каких вопросах могу быть полезна</h3>
+                <ul>
+                  <li>Финансовая аналитика и управленческие решения</li>
+                  <li>Автоматизация учёта и бизнес-процессов</li>
+                  <li>Vibe-coding, обсуждение идей и обмен опытом</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className={styles.contentBottom}>
+              <h2 className={styles.centeredTitle}>Здравствуйте, {getFirstName(authPayload)}.</h2>
+              <p className={styles.softText}>Выберите удобное время для встречи.</p>
+              {resolvedMode === "client" ? (
+                <button type="button" className={styles.primaryCta} onClick={() => setNewBookingOpen(true)}>
+                  Записаться на встречу
+                </button>
+              ) : null}
             </div>
           </section>
         ) : (

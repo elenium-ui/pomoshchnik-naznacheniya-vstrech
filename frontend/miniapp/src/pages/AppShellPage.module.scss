@@ -19,26 +19,40 @@
 
 .brand {
   display: inline-flex;
-  margin-bottom: 8px;
-  padding: 6px 12px;
+  margin-bottom: 10px;
+  padding: 8px 16px;
   border-radius: 999px;
   background: var(--color-accent-sky);
   color: var(--color-text-primary);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.brandSub {
-  margin: 0 0 14px;
-  color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: 16px;
+  font-weight: 700;
 }
 
 .header h1 {
-  margin: 0 0 10px;
+  margin: 0;
   color: var(--color-text-primary);
   font-size: 30px;
   line-height: 1.2;
+}
+
+.heroStack {
+  display: grid;
+  gap: 12px;
+}
+
+.photoPlaceholder {
+  width: min(100%, 360px);
+  margin: 4px auto 0;
+  min-height: 168px;
+  border-radius: 20px;
+  border: 1px solid rgba(112, 141, 164, 0.26);
+  background: linear-gradient(160deg, #f6fbff 0%, #f2f9f4 100%);
+  color: var(--color-text-secondary);
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .lead {
@@ -73,6 +87,26 @@
 .content {
   margin-top: 12px;
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.contentTop {
+  margin-top: 2px;
+}
+
+.contentBottom {
+  margin-top: auto;
+  padding: 16px 14px;
+  border: 1px solid rgba(112, 141, 164, 0.2);
+  border-radius: 16px;
+  background: linear-gradient(160deg, #ffffff 0%, #f7fbff 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
 }
 
 .content h2 {
@@ -82,7 +116,7 @@
 }
 
 .softText {
-  margin: 0 0 16px;
+  margin: 0;
   color: var(--color-text-secondary);
   line-height: 1.55;
 }
@@ -100,9 +134,12 @@
   background: linear-gradient(140deg, #bfe3ff 0%, #d2f2dd 100%);
   color: #21435a;
   font-weight: 700;
-  height: 44px;
-  padding: 0 16px;
-  margin-bottom: 14px;
+  min-height: 52px;
+  width: min(100%, 340px);
+  padding: 15px 22px;
+  font-size: 16px;
+  line-height: 1.15;
+  margin-top: 2px;
 }
 
 .featureCard h3 {
@@ -139,6 +176,10 @@
   display: grid;
   gap: 8px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.centeredTitle {
+  text-align: center;
 }
 
 .navItem,
