@@ -33,8 +33,36 @@ def build_engine(database_url: str, log_level: str = "INFO") -> Engine:
 
     echo = log_level.upper() == "DEBUG"
     engine = create_engine(database_url, connect_args=connect_args, echo=echo)
+    _apply_sqlite_schema_compat_migrations(engine=engine, database_url=database_url)
     logger.info("Database engine initialized.")
     return engine
+
+
+def _apply_sqlite_schema_compat_migrations(engine: Engine, database_url: str) -> None:
+    if not database_url.startswith("sqlite"):
+        return
+
+    try:
+        with engine.begin() as connection:
+            table_exists = connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='bookings'")
+            ).first()
+            if table_exists is None:
+                return
+
+            existing_columns = {
+                row[1]
+                for row in connection.execute(text("PRAGMA table_info('bookings')")).fetchall()
+            }
+            if "admin_public_comment" not in existing_columns:
+                connection.execute(text("ALTER TABLE bookings ADD COLUMN admin_public_comment TEXT"))
+                logger.info("SQLite schema upgraded: added bookings.admin_public_comment")
+            if "meeting_link" not in existing_columns:
+                connection.execute(text("ALTER TABLE bookings ADD COLUMN meeting_link TEXT"))
+                logger.info("SQLite schema upgraded: added bookings.meeting_link")
+    except Exception:
+        logger.exception("SQLite schema compatibility migration failed.")
+        raise
 
 
 def build_session_factory(engine: Engine) -> sessionmaker:

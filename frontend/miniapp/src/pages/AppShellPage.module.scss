@@ -30,7 +30,7 @@
 
 .header h1 {
   margin: 0;
-  color: var(--color-text-primary);
+  color: #264f6b;
   font-size: 30px;
   line-height: 1.2;
 }
@@ -55,6 +55,14 @@
   justify-content: center;
 }
 
+.photoImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  display: block;
+}
+
 .lead {
   margin: 0 0 16px;
   color: var(--color-text-secondary);
@@ -65,6 +73,28 @@
   display: inline-flex;
   gap: 8px;
   margin-bottom: 8px;
+}
+
+.bottomModeSwitch {
+  margin-top: 12px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  display: inline-flex;
+  gap: 8px;
+  align-self: center;
+}
+
+.adminAccessButton {
+  min-height: 42px;
+  min-width: 240px;
+  border: 1px solid rgba(102, 126, 147, 0.5);
+  border-radius: 12px;
+  background: linear-gradient(140deg, #8c9bab 0%, #728497 100%);
+  color: #f3f8fc;
+  font-weight: 700;
+  padding: 0 18px;
+  box-shadow: 0 5px 14px rgba(60, 78, 96, 0.2);
 }
 
 .modeButton,
@@ -112,7 +142,7 @@
 .content h2 {
   margin: 0 0 8px;
   font-size: 24px;
-  color: var(--color-text-primary);
+  color: #315f7d;
 }
 
 .softText {
@@ -144,7 +174,7 @@
 
 .featureCard h3 {
   margin: 0 0 8px;
-  color: var(--color-text-primary);
+  color: #2f6574;
   font-size: 18px;
 }
 
@@ -164,16 +194,217 @@
   gap: 10px;
 }
 
+.settingsStack {
+  display: grid;
+  gap: 14px;
+}
+
+.settingsSection {
+  position: relative;
+  border: 1px solid rgba(112, 141, 164, 0.18);
+  border-radius: 18px;
+  background: linear-gradient(160deg, #ffffff 0%, #f7fbff 55%, #f4fbf8 100%);
+  box-shadow: 0 8px 22px rgba(64, 96, 126, 0.08);
+  padding: 14px;
+  overflow: hidden;
+}
+
+.settingsSection::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  border-radius: 18px 0 0 18px;
+  background: linear-gradient(180deg, #8ecbff 0%, #abdcc7 100%);
+  opacity: 0.9;
+}
+
+.settingsSection:nth-child(2)::before {
+  background: linear-gradient(180deg, #8ecbff 0%, #8fd9f1 100%);
+}
+
+.settingsSection:nth-child(3)::before {
+  background: linear-gradient(180deg, #9ad0ff 0%, #b6e6cf 100%);
+}
+
+.settingsSection:nth-child(4)::before {
+  background: linear-gradient(180deg, #8fc4ff 0%, #d1e5ff 100%);
+}
+
+.settingsSection:nth-child(5)::before {
+  background: linear-gradient(180deg, #9ec9ff 0%, #c7e9da 100%);
+}
+
+.settingsSectionHead {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  position: relative;
+  z-index: 1;
+}
+
+.settingsSectionHead h3 {
+  margin: 0 0 5px;
+  color: #2d5672;
+  font-size: 18px;
+  line-height: 1.25;
+  letter-spacing: 0.1px;
+}
+
+.settingsSection:nth-child(1) .settingsSectionHead h3 {
+  color: #355f79;
+}
+
+.settingsSection:nth-child(2) .settingsSectionHead h3 {
+  color: #2d5f84;
+}
+
+.settingsSection:nth-child(3) .settingsSectionHead h3 {
+  color: #2e6678;
+}
+
+.settingsSection:nth-child(4) .settingsSectionHead h3 {
+  color: #3b5f88;
+}
+
+.settingsSection:nth-child(5) .settingsSectionHead h3 {
+  color: #2f6a74;
+}
+
+.settingsSectionHead .softText {
+  color: #516e88;
+}
+
+.settingsSectionBody {
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(112, 141, 164, 0.14);
+  border-radius: 12px;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.78) 0%, rgba(237, 247, 255, 0.72) 100%);
+  padding-left: 10px;
+  padding-right: 10px;
+  padding-bottom: 10px;
+  display: grid;
+  gap: 10px;
+  position: relative;
+  z-index: 1;
+}
+
+.sectionToggle {
+  flex-shrink: 0;
+  border: 1px solid rgba(117, 166, 205, 0.35);
+  border-radius: 999px;
+  min-height: 44px;
+  min-width: 138px;
+  padding: 0 16px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #2b4e69;
+  background: linear-gradient(140deg, #eaf5ff 0%, #edf9f3 100%);
+  box-shadow: 0 3px 10px rgba(88, 131, 168, 0.12);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settingsSectionHead:hover .sectionToggle {
+  border-color: rgba(97, 155, 201, 0.5);
+  background: linear-gradient(140deg, #e2f1ff 0%, #e5f7ee 100%);
+}
+
+.quickFilterRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cardHead {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.badgeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.statusBadgeSuccess {
+  background: #ddf6e8;
+  color: #225b3f;
+}
+
+.statusBadgeCalendarConfirmed {
+  background: linear-gradient(140deg, #dff0ff 0%, #e4f6ee 100%);
+  color: #2f5f7f;
+  border: 1px solid rgba(97, 158, 201, 0.35);
+}
+
+.statusBadgeWarning {
+  background: #fff4cf;
+  color: #6a581d;
+}
+
+.statusBadgeDanger {
+  background: #ffe2e5;
+  color: #7b2f36;
+}
+
+.statusBadgeNeutral {
+  background: #eaf0f5;
+  color: #355065;
+}
+
 .bookingCard {
   border: 1px solid rgba(112, 141, 164, 0.2);
   border-radius: 14px;
   background: #fff;
   padding: 12px;
+  cursor: default;
+}
+
+.bookingCardClickable {
+  cursor: pointer;
+}
+
+.bookingCardNeutral {
+  background: linear-gradient(160deg, #ffffff 0%, #eaf4ff 100%);
+}
+
+.bookingCardPending {
+  background: linear-gradient(160deg, #ffffff 0%, #dceeff 100%);
+}
+
+.bookingCardConfirmed {
+  background: linear-gradient(160deg, #ffffff 0%, #ddf6e8 100%);
+}
+
+.bookingCardReschedule {
+  background: linear-gradient(160deg, #ffffff 0%, #ece4ff 100%);
 }
 
 .bookingCard h3 {
   margin: 0 0 8px;
-  color: var(--color-text-primary);
+  color: #325d79;
   font-size: 18px;
 }
 
@@ -191,6 +422,87 @@
   padding: 12px;
   display: grid;
   gap: 10px;
+}
+
+.centeredButton {
+  align-self: center;
+}
+
+.rescheduleCard {
+  border: 1px solid rgba(111, 167, 135, 0.24);
+  border-radius: 14px;
+  background: linear-gradient(160deg, #ffffff 0%, #f4fcf6 100%);
+  padding: 12px;
+}
+
+.rescheduleCard h3 {
+  margin: 0 0 8px;
+  color: #2f6a75;
+}
+
+.weekNav {
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.weekLabel {
+  margin: 0;
+  min-height: 40px;
+  border-radius: 12px;
+  border: 1px solid rgba(66, 149, 223, 0.3);
+  background: #eaf4ff;
+  color: #1d3347;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 6px 10px;
+  font-size: 13px;
+  line-height: 1.35;
+  font-weight: 600;
+}
+
+.cardActionsCenter {
+  margin-top: 12px;
+  display: flex;
+  justify-content: center;
+}
+
+.rescheduleOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(18, 34, 48, 0.38);
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  padding: 10px;
+}
+
+.rescheduleModal {
+  width: min(720px, 100%);
+  height: calc(100vh - 20px);
+  border-radius: 20px;
+  border: 1px solid rgba(112, 141, 164, 0.24);
+  background: linear-gradient(160deg, #ffffff 0%, #f6fbff 100%);
+  padding: 14px;
+  overflow: auto;
+}
+
+.rescheduleHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rescheduleHeader h3 {
+  margin: 0;
+  color: #305d78;
+  font-size: 22px;
 }
 
 .field {
@@ -211,6 +523,26 @@
   border: 1px solid rgba(112, 141, 164, 0.3);
   padding: 0 12px;
   font-size: 14px;
+}
+
+.field select {
+  width: 100%;
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(112, 141, 164, 0.3);
+  padding: 0 12px;
+  font-size: 14px;
+  background: #ffffff;
+}
+
+.field textarea {
+  width: 100%;
+  min-height: 88px;
+  border-radius: 12px;
+  border: 1px solid rgba(112, 141, 164, 0.3);
+  padding: 10px 12px;
+  font-size: 14px;
+  resize: vertical;
 }
 
 .notice {
@@ -237,6 +569,33 @@
 .inlinePanel p {
   margin: 0 0 8px;
   color: var(--color-text-secondary);
+}
+
+.previewList {
+  display: grid;
+  gap: 6px;
+}
+
+.meetingPreviewCard {
+  border: 1px solid rgba(112, 141, 164, 0.25);
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 8px 10px;
+  display: grid;
+  gap: 4px;
+}
+
+.dualFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.inlineActionRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
 }
 
 .bottomNav {
@@ -300,5 +659,20 @@
 
   .card {
     padding: 26px 24px 20px;
+  }
+
+}
+
+@media (max-width: 640px) {
+  .rescheduleOverlay {
+    padding: 0;
+  }
+
+  .rescheduleModal {
+    width: 100%;
+    height: 100vh;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
   }
 }

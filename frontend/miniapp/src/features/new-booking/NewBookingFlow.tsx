@@ -39,8 +39,8 @@ function formatWeekLabel(weekKey: string): string {
   const end = start.add(6, "day");
   const sameYear = start.year() === end.year();
   return sameYear
-    ? `Неделя ${start.format("D MMMM")} - ${end.format("D MMMM")} ${start.format("YYYY")} года`
-    : `Неделя ${start.format("D MMMM YYYY")} - ${end.format("D MMMM YYYY")}`;
+    ? `${start.format("D MMMM")} - ${end.format("D MMMM")} ${start.format("YYYY")} года`
+    : `${start.format("D MMMM YYYY")} - ${end.format("D MMMM YYYY")}`;
 }
 
 function formatDayLabel(dayKey: string): string {
@@ -348,8 +348,8 @@ export function NewBookingFlow({ initData, onClose }: Props) {
           ) : null}
 
           {step === 7 ? (
-            <div className={styles.segment}>
-              <p className={styles.segmentTitle}>Неделя</p>
+            <div className={`${styles.segment} ${styles.scheduleSegment}`}>
+              <p className={`${styles.segmentTitle} ${styles.scheduleTitle}`}>Неделя</p>
               <div className={styles.weekSwitcher}>
                 <button
                   type="button"
@@ -372,7 +372,7 @@ export function NewBookingFlow({ initData, onClose }: Props) {
                 </button>
               </div>
 
-              <p className={styles.segmentTitle}>День</p>
+              <p className={`${styles.segmentTitle} ${styles.scheduleTitle}`}>День</p>
               <div className={styles.dayGrid}>
                 {selectedWeekDays.map((option) => (
                   <button
@@ -386,7 +386,7 @@ export function NewBookingFlow({ initData, onClose }: Props) {
                 ))}
               </div>
 
-              <p className={styles.segmentTitle}>Свободное время</p>
+              <p className={`${styles.segmentTitle} ${styles.scheduleTitle}`}>Свободное время</p>
               <div className={styles.timeGrid}>
                 {currentSlots.map((slot) => (
                   <button

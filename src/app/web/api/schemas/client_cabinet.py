@@ -21,6 +21,8 @@ class ClientBookingItem(BaseModel):
     slot_start_at: Optional[datetime] = None
     slot_end_at: Optional[datetime] = None
     comment: Optional[str] = None
+    admin_public_comment: Optional[str] = None
+    meeting_link: Optional[str] = None
     calendar_event_id: Optional[str] = None
     updated_at: datetime
 
@@ -37,6 +39,11 @@ class ClientBookingActionResponse(BaseModel):
     booking_id: int
     status: str
     message: str
+
+
+class ClientRescheduleSubmitRequest(BaseModel):
+    init_data: str = Field(min_length=1)
+    slot_key: str = Field(min_length=1)
 
 
 class ClientRescheduleStartResponse(BaseModel):

@@ -7,7 +7,9 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.application.services.availability import AvailabilityService
+from app.config import load_settings
 from app.infrastructure.db.session import build_engine, build_session_factory
+from app.modules.admin.service import AdminService
 from app.modules.bookings.service import BookingService
 from app.modules.users.service import UserService
 
@@ -32,12 +34,25 @@ class MiniAppCoreServices:
 
 @lru_cache(maxsize=1)
 def get_core_services() -> MiniAppCoreServices:
-    settings = MiniAppDataSettings()
-    engine = build_engine(database_url=settings.DATABASE_URL, log_level=settings.LOG_LEVEL)
+    data_settings = MiniAppDataSettings()
+    app_settings = load_settings()
+    engine = build_engine(database_url=data_settings.DATABASE_URL, log_level=data_settings.LOG_LEVEL)
     session_factory = build_session_factory(engine)
     return MiniAppCoreServices(
         user_service=UserService(session_factory=session_factory),
-        booking_service=BookingService(session_factory=session_factory),
+        booking_service=BookingService(session_factory=session_factory, settings=app_settings),
         availability_service=AvailabilityService(session_factory=session_factory),
     )
 
+
+@lru_cache(maxsize=1)
+def get_admin_service() -> AdminService:
+    data_settings = MiniAppDataSettings()
+    app_settings = load_settings()
+    engine = build_engine(database_url=data_settings.DATABASE_URL, log_level=data_settings.LOG_LEVEL)
+    session_factory = build_session_factory(engine)
+    return AdminService(
+        session_factory=session_factory,
+        google_service_account_file=app_settings.GOOGLE_SERVICE_ACCOUNT_FILE,
+        google_calendar_id=app_settings.GOOGLE_CALENDAR_ID,
+    )

@@ -1,4 +1,10 @@
 import type {
+  AdminAvailabilitySettingsResponse,
+  AdminBookingActionResponse,
+  AdminBookingItem,
+  AdminBookingsListResponse,
+  AdminCalendarOverviewResponse,
+  AdminSettingsMessageResponse,
   AuthSessionResponse,
   BookingSlotsResponse,
   ClientBookingActionResponse,
@@ -139,6 +145,17 @@ export function startClientReschedule(
   });
 }
 
+export function submitClientReschedule(
+  bookingId: number,
+  initData: string,
+  slotKey: string
+): Promise<ClientBookingActionResponse> {
+  return postJson<ClientBookingActionResponse>(`/api/miniapp/client/bookings/${bookingId}/reschedule/submit`, {
+    init_data: initData,
+    slot_key: slotKey
+  });
+}
+
 export async function loadClientProfile(initData: string): Promise<ClientProfileResponse> {
   const params = new URLSearchParams({ init_data: initData });
   const response = await fetch(`${API_BASE_URL}/api/miniapp/client/profile?${params.toString()}`);
@@ -156,4 +173,219 @@ export function updateClientProfile(payload: {
   reminder_enabled?: boolean | null;
 }): Promise<ClientProfileResponse> {
   return postJson<ClientProfileResponse>("/api/miniapp/client/profile", payload);
+}
+
+export async function loadAdminBookings(params: {
+  initData: string;
+  statusFilter?: string;
+  dateFilter?: string;
+  search?: string;
+}): Promise<AdminBookingsListResponse> {
+  const query = new URLSearchParams({ init_data: params.initData });
+  if (params.statusFilter) {
+    query.set("status_filter", params.statusFilter);
+  }
+  if (params.dateFilter) {
+    query.set("date_filter", params.dateFilter);
+  }
+  if (params.search) {
+    query.set("search", params.search);
+  }
+  const response = await fetch(`${API_BASE_URL}/api/miniapp/admin/bookings?${query.toString()}`);
+  if (!response.ok) {
+    let detail = "Failed to load admin bookings.";
+    try {
+      const payload = (await response.json()) as ApiErrorPayload;
+      if (payload.detail) {
+        detail = payload.detail;
+      }
+    } catch {
+      detail = "Failed to load admin bookings.";
+    }
+    throw new Error(detail);
+  }
+  return (await response.json()) as AdminBookingsListResponse;
+}
+
+export async function loadAdminBooking(initData: string, bookingId: number): Promise<AdminBookingItem> {
+  const query = new URLSearchParams({ init_data: initData });
+  const response = await fetch(`${API_BASE_URL}/api/miniapp/admin/bookings/${bookingId}?${query.toString()}`);
+  if (!response.ok) {
+    throw new Error("Failed to load booking card.");
+  }
+  return (await response.json()) as AdminBookingItem;
+}
+
+export function confirmAdminBooking(
+  initData: string,
+  bookingId: number,
+  payload?: {
+    admin_public_comment?: string;
+    meeting_link?: string;
+  }
+): Promise<AdminBookingActionResponse> {
+  return postJson<AdminBookingActionResponse>(`/api/miniapp/admin/bookings/${bookingId}/confirm`, {
+    init_data: initData,
+    ...payload
+  });
+}
+
+export function rejectAdminBooking(
+  initData: string,
+  bookingId: number,
+  payload?: {
+    admin_public_comment?: string;
+    meeting_link?: string;
+  }
+): Promise<AdminBookingActionResponse> {
+  return postJson<AdminBookingActionResponse>(`/api/miniapp/admin/bookings/${bookingId}/reject`, {
+    init_data: initData,
+    ...payload
+  });
+}
+
+export function updateAdminBookingMeta(
+  initData: string,
+  bookingId: number,
+  payload: {
+    admin_public_comment?: string;
+    meeting_link?: string;
+  }
+): Promise<AdminBookingActionResponse> {
+  return postJson<AdminBookingActionResponse>(`/api/miniapp/admin/bookings/${bookingId}/meta`, {
+    init_data: initData,
+    ...payload
+  });
+}
+
+export async function loadAdminCalendarOverview(params: {
+  initData: string;
+  fromDate?: string;
+  days?: number;
+}): Promise<AdminCalendarOverviewResponse> {
+  const query = new URLSearchParams({ init_data: params.initData });
+  if (params.fromDate) {
+    query.set("from_date", params.fromDate);
+  }
+  if (typeof params.days === "number") {
+    query.set("days", String(params.days));
+  }
+  const response = await fetch(`${API_BASE_URL}/api/miniapp/admin/calendar/overview?${query.toString()}`);
+  if (!response.ok) {
+    throw new Error("Failed to load calendar overview.");
+  }
+  return (await response.json()) as AdminCalendarOverviewResponse;
+}
+
+export async function loadAdminAvailabilitySettings(params: {
+  initData: string;
+  fromDate?: string;
+  days?: number;
+}): Promise<AdminAvailabilitySettingsResponse> {
+  const query = new URLSearchParams({ init_data: params.initData });
+  if (params.fromDate) {
+    query.set("from_date", params.fromDate);
+  }
+  if (typeof params.days === "number") {
+    query.set("days", String(params.days));
+  }
+  const response = await fetch(`${API_BASE_URL}/api/miniapp/admin/availability/settings?${query.toString()}`);
+  if (!response.ok) {
+    throw new Error("Failed to load availability settings.");
+  }
+  return (await response.json()) as AdminAvailabilitySettingsResponse;
+}
+
+export function addAdminWorkingWindow(payload: {
+  init_data: string;
+  weekday: number;
+  start_time: string;
+  end_time: string;
+}): Promise<AdminSettingsMessageResponse> {
+  return postJson<AdminSettingsMessageResponse>("/api/miniapp/admin/availability/working-windows", payload);
+}
+
+export function clearAdminWorkingWindows(payload: {
+  init_data: string;
+  weekday?: number;
+}): Promise<AdminSettingsMessageResponse> {
+  return postJson<AdminSettingsMessageResponse>("/api/miniapp/admin/availability/working-windows/clear", payload);
+}
+
+export function removeAdminWorkingWindow(payload: {
+  init_data: string;
+  rule_id: number;
+}): Promise<AdminSettingsMessageResponse> {
+  return postJson<AdminSettingsMessageResponse>("/api/miniapp/admin/availability/working-windows/remove", payload);
+}
+
+export function updateAdminMinLead(payload: {
+  init_data: string;
+  minutes: number;
+}): Promise<AdminSettingsMessageResponse> {
+  return postJson<AdminSettingsMessageResponse>("/api/miniapp/admin/availability/min-lead", payload);
+}
+
+export function closeAdminDay(payload: {
+  init_data: string;
+  date: string;
+  reason?: string;
+}): Promise<AdminSettingsMessageResponse> {
+  return postJson<AdminSettingsMessageResponse>("/api/miniapp/admin/availability/closed-days/close", payload);
+}
+
+export function reopenAdminDay(payload: {
+  init_data: string;
+  date: string;
+}): Promise<AdminSettingsMessageResponse> {
+  return postJson<AdminSettingsMessageResponse>("/api/miniapp/admin/availability/closed-days/reopen", payload);
+}
+
+export function addAdminTimeBlock(payload: {
+  init_data: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  comment?: string;
+}): Promise<AdminSettingsMessageResponse> {
+  return postJson<AdminSettingsMessageResponse>("/api/miniapp/admin/availability/time-blocks", payload);
+}
+
+export function removeAdminTimeBlock(payload: {
+  init_data: string;
+  block_id: number;
+}): Promise<AdminSettingsMessageResponse> {
+  return postJson<AdminSettingsMessageResponse>("/api/miniapp/admin/availability/time-blocks/remove", payload);
+}
+
+export function addAdminOneTimeWindow(payload: {
+  init_data: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  comment?: string;
+}): Promise<AdminSettingsMessageResponse> {
+  return postJson<AdminSettingsMessageResponse>("/api/miniapp/admin/availability/one-time-windows", payload);
+}
+
+export function removeAdminOneTimeWindowsByDate(payload: {
+  init_data: string;
+  date: string;
+}): Promise<AdminSettingsMessageResponse> {
+  return postJson<AdminSettingsMessageResponse>(
+    "/api/miniapp/admin/availability/one-time-windows/remove-by-date",
+    payload
+  );
+}
+
+export function removeAdminOneTimeWindow(payload: {
+  init_data: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+}): Promise<AdminSettingsMessageResponse> {
+  return postJson<AdminSettingsMessageResponse>(
+    "/api/miniapp/admin/availability/one-time-windows/remove",
+    payload
+  );
 }

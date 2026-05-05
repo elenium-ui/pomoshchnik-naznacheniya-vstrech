@@ -26,6 +26,8 @@ class Booking(Base):
     previous_slot_start_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     previous_slot_end_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    admin_public_comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    meeting_link: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     status: Mapped[str] = mapped_column(String(64), default="draft")
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     calendar_event_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)

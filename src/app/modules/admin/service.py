@@ -4,13 +4,14 @@ import logging
 import json
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from typing import Iterator
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.infrastructure.calendar.google_calendar_client import GoogleCalendarClient
+from app.application.services.availability import AvailabilityService
 from app.infrastructure.db.models.availability_rule import AvailabilityRule
 from app.infrastructure.db.models.booking import Booking
 from app.infrastructure.db.models.closed_date import ClosedDate
@@ -34,6 +35,7 @@ class ClosedDayCancellation:
 class AdminService:
     ACTIVE_FUTURE_STATUSES = {"pending_decision", "confirmed", "reschedule_requested"}
     ONE_TIME_WINDOWS_KEY = "one_time_windows_json"
+    OVERVIEW_BOOKING_STATUSES = {"pending_decision", "confirmed", "reschedule_requested"}
 
     def __init__(
         self,
@@ -66,6 +68,25 @@ class AdminService:
         if end_at <= start_at:
             raise ValueError("Время окончания должно быть позже начала.")
         with self._session_scope() as session:
+            existing = (
+                session.query(AvailabilityRule)
+                .filter(
+                    AvailabilityRule.weekday == weekday,
+                    AvailabilityRule.start_time == start_at,
+                    AvailabilityRule.end_time == end_at,
+                    AvailabilityRule.is_active.is_(True),
+                )
+                .one_or_none()
+            )
+            if existing is not None:
+                logger.info(
+                    "Availability window already exists: rule_id=%s weekday=%s start=%s end=%s",
+                    existing.id,
+                    weekday,
+                    start_at,
+                    end_at,
+                )
+                return existing
             now = datetime.utcnow()
             rule = AvailabilityRule(
                 weekday=weekday,
@@ -85,6 +106,26 @@ class AdminService:
                 end_at,
             )
             return rule
+
+    def remove_working_window(self, rule_id: int) -> bool:
+        with self._session_scope() as session:
+            row = session.query(AvailabilityRule).filter(AvailabilityRule.id == rule_id).one_or_none()
+            if row is None:
+                return False
+            session.delete(row)
+            logger.info("Availability window removed: rule_id=%s", rule_id)
+            return True
+
+    def list_working_windows(self, limit: int = 200) -> list[AvailabilityRule]:
+        with self._session_scope() as session:
+            rows = (
+                session.query(AvailabilityRule)
+                .filter(AvailabilityRule.is_active.is_(True))
+                .order_by(AvailabilityRule.weekday.asc(), AvailabilityRule.start_time.asc())
+                .limit(limit)
+                .all()
+            )
+            return rows
 
     def clear_working_windows(self, weekday: int | None = None) -> int:
         with self._session_scope() as session:
@@ -131,6 +172,21 @@ class AdminService:
             }
             if comment:
                 item["comment"] = comment
+            exists = any(
+                isinstance(existing, dict)
+                and existing.get("date") == item["date"]
+                and existing.get("start") == item["start"]
+                and existing.get("end") == item["end"]
+                for existing in items
+            )
+            if exists:
+                logger.info(
+                    "One-time window already exists: date=%s start=%s end=%s",
+                    target_date.isoformat(),
+                    start_at,
+                    end_at,
+                )
+                return item
             items.append(item)
             items.sort(key=lambda x: (x.get("date", ""), x.get("start", "")))
             self._settings_repository.set_value(
@@ -184,6 +240,52 @@ class AdminService:
             logger.info("One-time windows removed by date: date=%s deleted=%s", target, deleted)
             return deleted
 
+    def remove_one_time_window(self, *, target_date: date, start_at: time, end_at: time) -> bool:
+        with self._session_scope() as session:
+            raw = self._settings_repository.get_value(session, self.ONE_TIME_WINDOWS_KEY)
+            if not raw:
+                return False
+            try:
+                parsed = json.loads(raw)
+            except Exception:
+                parsed = []
+            if not isinstance(parsed, list):
+                parsed = []
+
+            date_key = target_date.isoformat()
+            start_key = start_at.strftime("%H:%M")
+            end_key = end_at.strftime("%H:%M")
+            removed = False
+            filtered: list[dict] = []
+            for row in parsed:
+                if (
+                    not removed
+                    and isinstance(row, dict)
+                    and row.get("date") == date_key
+                    and row.get("start") == start_key
+                    and row.get("end") == end_key
+                ):
+                    removed = True
+                    continue
+                if isinstance(row, dict):
+                    filtered.append(row)
+
+            if not removed:
+                return False
+
+            self._settings_repository.set_value(
+                session,
+                self.ONE_TIME_WINDOWS_KEY,
+                json.dumps(filtered, ensure_ascii=False),
+            )
+            logger.info(
+                "One-time window removed: date=%s start=%s end=%s",
+                target_date.isoformat(),
+                start_at,
+                end_at,
+            )
+            return True
+
     def get_min_lead_minutes(self) -> int | None:
         with self._session_scope() as session:
             raw = self._settings_repository.get_value(session, "min_lead_minutes")
@@ -215,6 +317,32 @@ class AdminService:
                 end_at,
             )
             return block
+
+    def remove_time_block(self, block_id: int) -> bool:
+        with self._session_scope() as session:
+            block = session.query(TimeBlock).filter(TimeBlock.id == block_id).one_or_none()
+            if block is None:
+                return False
+            session.delete(block)
+            logger.info("Time block removed: block_id=%s date=%s", block_id, block.date.isoformat())
+            return True
+
+    def list_time_blocks(
+        self,
+        *,
+        start_date: date,
+        end_date: date,
+        limit: int = 300,
+    ) -> list[TimeBlock]:
+        with self._session_scope() as session:
+            rows = (
+                session.query(TimeBlock)
+                .filter(TimeBlock.date >= start_date, TimeBlock.date <= end_date)
+                .order_by(TimeBlock.date.asc(), TimeBlock.start_time.asc())
+                .limit(limit)
+                .all()
+            )
+            return rows
 
     def close_day(self, target_date: date, reason: str | None = None) -> list[ClosedDayCancellation]:
         now_msk_naive = datetime.now(MSK).replace(tzinfo=None)
@@ -297,6 +425,161 @@ class AdminService:
                 .all()
             )
             return rows
+
+    def get_calendar_overview(self, *, start_date: date, horizon_days: int = 21) -> list[dict]:
+        if horizon_days < 1 or horizon_days > 62:
+            raise ValueError("horizon_days должен быть в диапазоне 1..62.")
+        end_date = start_date + timedelta(days=horizon_days - 1)
+        day_start = datetime.combine(start_date, time(0, 0))
+        day_end = datetime.combine(end_date, time(23, 59, 59))
+        windows_by_weekday_default = AvailabilityService.DEFAULT_RULES
+        result: list[dict] = []
+
+        with self._session_scope() as session:
+            rules = (
+                session.query(AvailabilityRule)
+                .filter(AvailabilityRule.is_active.is_(True))
+                .order_by(AvailabilityRule.weekday.asc(), AvailabilityRule.start_time.asc())
+                .all()
+            )
+            closed_rows = (
+                session.query(ClosedDate)
+                .filter(ClosedDate.date >= start_date, ClosedDate.date <= end_date)
+                .order_by(ClosedDate.date.asc())
+                .all()
+            )
+            block_rows = (
+                session.query(TimeBlock)
+                .filter(TimeBlock.date >= start_date, TimeBlock.date <= end_date)
+                .order_by(TimeBlock.date.asc(), TimeBlock.start_time.asc())
+                .all()
+            )
+            bookings = (
+                session.query(Booking, User)
+                .join(User, User.id == Booking.user_id)
+                .filter(
+                    Booking.status.in_(self.OVERVIEW_BOOKING_STATUSES),
+                    Booking.slot_start_at.isnot(None),
+                    Booking.slot_end_at.isnot(None),
+                    Booking.slot_start_at >= day_start,
+                    Booking.slot_start_at <= day_end,
+                )
+                .order_by(Booking.slot_start_at.asc())
+                .all()
+            )
+            one_time_windows = self._load_one_time_windows(
+                session=session,
+                start_date=start_date,
+                end_date=end_date,
+            )
+
+        rules_by_weekday: dict[int, list[tuple[time, time]]] = {}
+        if rules:
+            for row in rules:
+                rules_by_weekday.setdefault(row.weekday, []).append((row.start_time, row.end_time))
+        else:
+            rules_by_weekday = {
+                weekday: list(items)
+                for weekday, items in windows_by_weekday_default.items()
+            }
+        for weekday in rules_by_weekday:
+            rules_by_weekday[weekday].sort(key=lambda x: x[0])
+
+        closed_map = {row.date: row for row in closed_rows}
+        blocks_by_date: dict[date, list[TimeBlock]] = {}
+        for block in block_rows:
+            blocks_by_date.setdefault(block.date, []).append(block)
+
+        bookings_by_date: dict[date, list[tuple[Booking, User]]] = {}
+        for booking, user in bookings:
+            day = booking.slot_start_at.date()
+            bookings_by_date.setdefault(day, []).append((booking, user))
+
+        current = start_date
+        while current <= end_date:
+            weekday_windows = list(rules_by_weekday.get(current.weekday(), []))
+            weekday_windows.extend(one_time_windows.get(current, []))
+            weekday_windows.sort(key=lambda x: x[0])
+            windows = [
+                {
+                    "start_time": start_at.strftime("%H:%M"),
+                    "end_time": end_at.strftime("%H:%M"),
+                }
+                for start_at, end_at in weekday_windows
+            ]
+            day_blocks = blocks_by_date.get(current, [])
+            day_bookings = bookings_by_date.get(current, [])
+            pending_count = sum(1 for booking, _ in day_bookings if booking.status == "pending_decision")
+            confirmed_count = sum(1 for booking, _ in day_bookings if booking.status == "confirmed")
+            reschedule_count = sum(1 for booking, _ in day_bookings if booking.status == "reschedule_requested")
+            previews = [
+                {
+                    "booking_id": booking.id,
+                    "topic": booking.topic,
+                    "status": booking.status,
+                    "slot_start_at": booking.slot_start_at,
+                    "slot_end_at": booking.slot_end_at,
+                    "client_name": user.name or user.telegram_display_name or user.telegram_username,
+                    "client_username": user.telegram_username,
+                }
+                for booking, user in day_bookings[:8]
+            ]
+            result.append(
+                {
+                    "date": current,
+                    "is_closed": current in closed_map,
+                    "closed_reason": closed_map[current].reason if current in closed_map else None,
+                    "working_windows": windows,
+                    "time_blocks": [
+                        {
+                            "block_id": block.id,
+                            "start_time": block.start_time.strftime("%H:%M"),
+                            "end_time": block.end_time.strftime("%H:%M"),
+                            "comment": block.comment,
+                        }
+                        for block in day_blocks
+                    ],
+                    "pending_count": pending_count,
+                    "confirmed_count": confirmed_count,
+                    "reschedule_count": reschedule_count,
+                    "bookings_preview": previews,
+                }
+            )
+            current += timedelta(days=1)
+
+        logger.info(
+            "Admin calendar overview generated: start_date=%s horizon_days=%s rows=%s",
+            start_date.isoformat(),
+            horizon_days,
+            len(result),
+        )
+        return result
+
+    def get_availability_snapshot(self, *, from_date: date, days: int = 35) -> dict:
+        if days < 1 or days > 120:
+            raise ValueError("days должен быть в диапазоне 1..120.")
+        to_date = from_date + timedelta(days=days - 1)
+        windows = self.list_working_windows(limit=300)
+        min_lead = self.get_min_lead_minutes()
+        closed_days = self.list_closed_days(limit=500)
+        one_time = self.list_one_time_windows(limit=500)
+        blocks = self.list_time_blocks(start_date=from_date, end_date=to_date, limit=500)
+        logger.info(
+            "Admin availability snapshot loaded: from_date=%s to_date=%s windows=%s closed=%s blocks=%s one_time=%s",
+            from_date.isoformat(),
+            to_date.isoformat(),
+            len(windows),
+            len(closed_days),
+            len(blocks),
+            len(one_time),
+        )
+        return {
+            "min_lead_minutes": min_lead,
+            "working_windows": windows,
+            "closed_days": [row for row in closed_days if row.date >= from_date],
+            "time_blocks": blocks,
+            "one_time_windows": one_time,
+        }
 
     def search_bookings(
         self,
@@ -398,3 +681,40 @@ class AdminService:
             user.is_blocked = False
             user.updated_at = datetime.utcnow()
             logger.info("User unblocked: telegram_user_id=%s", telegram_user_id)
+
+    def _load_one_time_windows(
+        self,
+        *,
+        session: Session,
+        start_date: date,
+        end_date: date,
+    ) -> dict[date, list[tuple[time, time]]]:
+        raw = self._settings_repository.get_value(session, self.ONE_TIME_WINDOWS_KEY)
+        if not raw:
+            return {}
+        try:
+            rows = json.loads(raw)
+        except Exception:
+            return {}
+        if not isinstance(rows, list):
+            return {}
+        result: dict[date, list[tuple[time, time]]] = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            date_raw = str(row.get("date", ""))
+            start_raw = str(row.get("start", ""))
+            end_raw = str(row.get("end", ""))
+            try:
+                day = datetime.strptime(date_raw, "%Y-%m-%d").date()
+                start_at = datetime.strptime(start_raw, "%H:%M").time()
+                end_at = datetime.strptime(end_raw, "%H:%M").time()
+            except ValueError:
+                continue
+            if day < start_date or day > end_date or end_at <= start_at:
+                continue
+            result.setdefault(day, []).append((start_at, end_at))
+        for day, values in result.items():
+            values.sort(key=lambda x: x[0])
+            result[day] = values
+        return result

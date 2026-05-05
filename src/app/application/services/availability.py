@@ -184,11 +184,14 @@ class AvailabilityService:
         if not rules:
             return {k: list(v) for k, v in self.DEFAULT_RULES.items()}
 
-        windows: dict[int, list[tuple[time, time]]] = defaultdict(list)
+        windows: dict[int, list[tuple[time, time]]] = {
+            weekday: list(items) for weekday, items in self.DEFAULT_RULES.items()
+        }
+        custom_by_weekday: dict[int, list[tuple[time, time]]] = defaultdict(list)
         for rule in rules:
-            windows[rule.weekday].append((rule.start_time, rule.end_time))
+            custom_by_weekday[rule.weekday].append((rule.start_time, rule.end_time))
 
-        for weekday, items in windows.items():
+        for weekday, items in custom_by_weekday.items():
             items.sort(key=lambda item: item[0])
             windows[weekday] = items
         return dict(windows)

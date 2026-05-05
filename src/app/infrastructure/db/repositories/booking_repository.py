@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, time
 from typing import Optional
 
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, case, or_
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.models.booking import Booking
+from app.infrastructure.db.models.user import User
 
 
 class BookingRepository:
@@ -57,14 +58,26 @@ class BookingRepository:
         booking.updated_at = datetime.utcnow()
         return booking
 
-    def list_active_by_user(self, session: Session, user_id: int, limit: int = 20) -> list[Booking]:
-        return (
-            session.query(Booking)
-            .filter(Booking.user_id == user_id, Booking.status.in_(self.ACTIVE_STATUSES))
-            .order_by(Booking.created_at.desc())
-            .limit(limit)
-            .all()
+    def list_active_by_user(
+        self,
+        session: Session,
+        user_id: int,
+        now_msk_naive: datetime | None = None,
+        limit: int = 20,
+    ) -> list[Booking]:
+        query = session.query(Booking).filter(
+            Booking.user_id == user_id,
+            Booking.status.in_(self.ACTIVE_STATUSES),
         )
+        if now_msk_naive is not None:
+            query = query.filter(
+                or_(
+                    Booking.status != "confirmed",
+                    Booking.slot_end_at.is_(None),
+                    Booking.slot_end_at >= now_msk_naive,
+                )
+            )
+        return query.order_by(Booking.created_at.desc()).limit(limit).all()
 
     def list_history_completed_by_user(
         self,
@@ -109,6 +122,62 @@ class BookingRepository:
             session.query(Booking)
             .filter(Booking.status == "confirmed")
             .order_by(Booking.updated_at.desc(), Booking.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+    def get_by_id_with_user(self, session: Session, booking_id: int) -> Optional[tuple[Booking, User]]:
+        return (
+            session.query(Booking, User)
+            .join(User, User.id == Booking.user_id)
+            .filter(Booking.id == booking_id)
+            .one_or_none()
+        )
+
+    def search_for_admin(
+        self,
+        session: Session,
+        *,
+        status: str | None = None,
+        target_date: date | None = None,
+        search: str | None = None,
+        limit: int = 50,
+    ) -> list[tuple[Booking, User]]:
+        query = session.query(Booking, User).join(User, User.id == Booking.user_id)
+        if status:
+            query = query.filter(Booking.status == status)
+        if target_date:
+            day_start = datetime.combine(target_date, time(0, 0))
+            day_end = datetime.combine(target_date, time(23, 59, 59))
+            query = query.filter(Booking.slot_start_at.isnot(None), Booking.slot_start_at >= day_start, Booking.slot_start_at <= day_end)
+        if search:
+            like = f"%{search.strip()}%"
+            query = query.filter(
+                or_(
+                    Booking.topic.ilike(like),
+                    User.name.ilike(like),
+                    User.email.ilike(like),
+                    User.telegram_username.ilike(like),
+                )
+            )
+        priority = case(
+            (
+                Booking.status.in_(["pending_decision", "reschedule_requested"]),
+                0,
+            ),
+            else_=1,
+        )
+        effective_slot_start = case(
+            (Booking.status == "reschedule_requested", Booking.requested_new_slot_start_at),
+            else_=Booking.slot_start_at,
+        )
+        return (
+            query.order_by(
+                priority.asc(),
+                effective_slot_start.is_(None),
+                effective_slot_start.asc(),
+                Booking.created_at.desc(),
+            )
             .limit(limit)
             .all()
         )

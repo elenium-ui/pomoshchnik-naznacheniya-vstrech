@@ -24,6 +24,7 @@ from app.web.api.schemas.client_cabinet import (
     ClientProfileResponse,
     ClientProfileUpdateRequest,
     ClientRescheduleStartResponse,
+    ClientRescheduleSubmitRequest,
 )
 from app.web.services.auth import MiniAppAuthService, TelegramInitDataError
 
@@ -145,6 +146,8 @@ def _to_booking_item(booking) -> ClientBookingItem:
         slot_start_at=booking.slot_start_at,
         slot_end_at=booking.slot_end_at,
         comment=booking.comment,
+        admin_public_comment=booking.admin_public_comment,
+        meeting_link=booking.meeting_link,
         calendar_event_id=booking.calendar_event_id,
         updated_at=booking.updated_at,
     )
@@ -157,7 +160,14 @@ def get_active_bookings(
     core: MiniAppCoreServices = Depends(get_core_services),
 ) -> ClientBookingsListResponse:
     _, user = _resolve_user(init_data, auth_service=auth_service, core=core)
-    items = [_to_booking_item(item) for item in core.booking_service.list_active_bookings(user_id=user.id)]
+    now_msk_naive = datetime.now(MSK).replace(tzinfo=None)
+    items = [
+        _to_booking_item(item)
+        for item in core.booking_service.list_active_bookings(
+            user_id=user.id,
+            now_msk_naive=now_msk_naive,
+        )
+    ]
     logger.info("Mini App client active bookings loaded: user_id=%s count=%s", user.id, len(items))
     return ClientBookingsListResponse(items=items)
 
@@ -252,6 +262,62 @@ def start_reschedule(
         current_slot_end_at=booking.slot_end_at,
         available_slots=hierarchy,
         message="Сценарий переноса запущен. Выберите новый слот.",
+    )
+
+
+@router.post("/bookings/{booking_id}/reschedule/submit", response_model=ClientBookingActionResponse)
+def submit_reschedule(
+    booking_id: int,
+    payload: ClientRescheduleSubmitRequest,
+    auth_service: MiniAppAuthService = Depends(get_auth_service),
+    core: MiniAppCoreServices = Depends(get_core_services),
+) -> ClientBookingActionResponse:
+    session, user = _resolve_user(payload.init_data, auth_service=auth_service, core=core)
+    try:
+        booking = core.booking_service.get_booking_for_user(booking_id=booking_id, user_id=user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    if booking.status not in {"pending_decision", "confirmed"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Запросить перенос можно только для заявки в ожидании или подтвержденной.",
+        )
+    if not booking.duration_minutes or booking.duration_minutes <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="У заявки не указана длительность для подбора переноса.",
+        )
+
+    slots_by_date = core.availability_service.get_available_slots(duration_minutes=booking.duration_minutes)
+    _, key_to_slot = _build_slot_hierarchy(slots_by_date)
+    if payload.slot_key not in key_to_slot:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Выбранный слот недоступен.")
+
+    selected_start_at, selected_end_at = key_to_slot[payload.slot_key]
+    expires_at = (datetime.now(MSK) + timedelta(hours=72)).replace(tzinfo=None)
+    try:
+        updated = core.booking_service.request_reschedule_by_user(
+            booking_id=booking.id,
+            user_id=user.id,
+            user_telegram_user_id=session.user.telegram_user_id,
+            requested_start_at_msk_naive=selected_start_at.replace(tzinfo=None),
+            requested_end_at_msk_naive=selected_end_at.replace(tzinfo=None),
+            expires_at_msk_naive=expires_at,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    logger.info(
+        "Mini App client reschedule submitted: booking_id=%s user_id=%s slot_key=%s",
+        updated.id,
+        user.id,
+        payload.slot_key,
+    )
+    return ClientBookingActionResponse(
+        booking_id=updated.id,
+        status=updated.status,
+        message="Запрос на перенос отправлен администратору.",
     )
 
 

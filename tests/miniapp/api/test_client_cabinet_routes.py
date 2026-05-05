@@ -120,7 +120,7 @@ def test_stage4_active_history_and_profile_routes(tmp_path):
 
     active_response = client.get("/api/miniapp/client/bookings/active", params={"init_data": init_data})
     assert active_response.status_code == 200
-    assert active_response.json()["items"]
+    assert active_response.json()["items"] == []
 
     history_response = client.get("/api/miniapp/client/bookings/history", params={"init_data": init_data})
     assert history_response.status_code == 200
@@ -180,6 +180,15 @@ def test_stage4_cancel_and_reschedule_start(tmp_path):
     )
     assert reschedule_start.status_code == 200
     assert reschedule_start.json()["available_slots"]["total_slots"] > 0
+    first_day_key = next(iter(reschedule_start.json()["available_slots"]["time_options_by_day"].keys()))
+    slot_key = reschedule_start.json()["available_slots"]["time_options_by_day"][first_day_key][0]["slot_key"]
+
+    submit_response = client.post(
+        f"/api/miniapp/client/bookings/{booking_id}/reschedule/submit",
+        json={"init_data": init_data, "slot_key": slot_key},
+    )
+    assert submit_response.status_code == 200
+    assert submit_response.json()["status"] == "reschedule_requested"
 
     cancel_response = client.post(
         f"/api/miniapp/client/bookings/{booking_id}/cancel",

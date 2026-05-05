@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Iterator, Optional
 from zoneinfo import ZoneInfo
 
@@ -76,9 +76,14 @@ class BookingService:
             logger.info("Draft booking updated: booking_id=%s fields=%s", booking.id, list(fields.keys()))
             return booking
 
-    def list_active_bookings(self, user_id: int) -> list[Booking]:
+    def list_active_bookings(self, user_id: int, now_msk_naive: datetime | None = None) -> list[Booking]:
+        effective_now = now_msk_naive or datetime.now(MSK).replace(tzinfo=None)
         with self._session_scope() as session:
-            bookings = self._repository.list_active_by_user(session=session, user_id=user_id)
+            bookings = self._repository.list_active_by_user(
+                session=session,
+                user_id=user_id,
+                now_msk_naive=effective_now,
+            )
             logger.info("Active bookings listed: user_id=%s count=%s", user_id, len(bookings))
             return bookings
 
@@ -103,6 +108,66 @@ class BookingService:
             bookings = self._repository.list_confirmed(session=session, limit=limit)
             logger.info("Admin confirmed bookings listed: count=%s", len(bookings))
             return bookings
+
+    def search_bookings_for_admin(
+        self,
+        *,
+        status: str | None = None,
+        target_date: date | None = None,
+        search: str | None = None,
+        limit: int = 50,
+    ) -> list[tuple[Booking, User]]:
+        with self._session_scope() as session:
+            rows = self._repository.search_for_admin(
+                session=session,
+                status=status,
+                target_date=target_date,
+                search=search,
+                limit=limit,
+            )
+            logger.info(
+                "Admin booking search via booking service: status=%s date=%s search=%s count=%s",
+                status,
+                target_date.isoformat() if target_date else None,
+                bool(search),
+                len(rows),
+            )
+            return rows
+
+    def get_booking_for_admin(self, booking_id: int) -> tuple[Booking, User]:
+        with self._session_scope() as session:
+            row = self._repository.get_by_id_with_user(session=session, booking_id=booking_id)
+            if row is None:
+                raise ValueError("Заявка не найдена.")
+            return row
+
+    def update_booking_admin_fields(
+        self,
+        *,
+        booking_id: int,
+        admin_telegram_user_id: int,
+        admin_public_comment: str | None,
+        meeting_link: str | None,
+    ) -> tuple[Booking, User]:
+        with self._session_scope() as session:
+            row = self._repository.get_by_id_with_user(session=session, booking_id=booking_id)
+            if row is None:
+                raise ValueError("Заявка не найдена.")
+            booking, user = row
+            self._repository.update_fields(
+                booking,
+                admin_public_comment=admin_public_comment,
+                meeting_link=meeting_link,
+            )
+            session.flush()
+            logger.info(
+                "Admin booking meta updated: booking_id=%s admin_tg_id=%s comment=%s link=%s",
+                booking.id,
+                admin_telegram_user_id,
+                bool(admin_public_comment),
+                bool(meeting_link),
+            )
+            return booking, user
 
     def get_booking_for_user(self, booking_id: int, user_id: int) -> Booking:
         with self._session_scope() as session:
@@ -213,12 +278,20 @@ class BookingService:
                 )
 
             event_request = self._build_calendar_event_request(booking=booking, user=user)
-            calendar_client = self._calendar_client_for_use()
-            if booking.calendar_event_id:
-                calendar_client.update_event(booking.calendar_event_id, event_request)
-                event_id = booking.calendar_event_id
-            else:
-                event_id = calendar_client.create_event(event_request)
+            event_id = booking.calendar_event_id
+            try:
+                calendar_client = self._calendar_client_for_use()
+                if booking.calendar_event_id:
+                    calendar_client.update_event(booking.calendar_event_id, event_request)
+                    event_id = booking.calendar_event_id
+                else:
+                    event_id = calendar_client.create_event(event_request)
+            except Exception as exc:
+                logger.warning(
+                    "Calendar sync skipped on admin confirm: booking_id=%s reason=%s",
+                    booking.id,
+                    exc,
+                )
             self._repository.update_fields(
                 booking,
                 calendar_event_id=event_id,
@@ -337,12 +410,20 @@ class BookingService:
                 raise ValueError("Эту заявку нельзя отменить в текущем статусе.")
 
             if booking.calendar_event_id:
-                self._calendar_client_for_use().delete_event(booking.calendar_event_id)
-                logger.info(
-                    "Calendar event removed due to user cancellation: booking_id=%s event_id=%s",
-                    booking.id,
-                    booking.calendar_event_id,
-                )
+                try:
+                    self._calendar_client_for_use().delete_event(booking.calendar_event_id)
+                    logger.info(
+                        "Calendar event removed due to user cancellation: booking_id=%s event_id=%s",
+                        booking.id,
+                        booking.calendar_event_id,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Calendar event delete skipped for user cancellation: booking_id=%s event_id=%s reason=%s",
+                        booking.id,
+                        booking.calendar_event_id,
+                        exc,
+                    )
 
             self._repository.update_fields(
                 booking,

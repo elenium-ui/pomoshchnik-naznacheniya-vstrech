@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.web.api.routers.admin_availability import router as admin_availability_router
+from app.web.api.routers.admin_cabinet import router as admin_cabinet_router
 from app.web.api.routers.auth import router as auth_router
 from app.web.api.routers.booking_flow import router as booking_flow_router
 from app.web.api.routers.client_cabinet import router as client_cabinet_router
@@ -27,6 +29,8 @@ def create_app() -> FastAPI:
     app.include_router(auth_router, tags=["auth"])
     app.include_router(booking_flow_router, tags=["bookings"])
     app.include_router(client_cabinet_router, tags=["client-cabinet"])
+    app.include_router(admin_cabinet_router, tags=["admin-cabinet"])
+    app.include_router(admin_availability_router, tags=["admin-availability"])
     app.include_router(health_router, tags=["system"])
     return app
 
