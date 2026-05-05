@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { createAuthSession, switchAuthMode } from "../api/miniapp";
-import type { AuthSessionResponse, ModeName } from "../api/types";
+import {
+  cancelClientBooking,
+  createAuthSession,
+  loadClientActiveBookings,
+  loadClientHistoryBookings,
+  loadClientProfile,
+  startClientReschedule,
+  switchAuthMode,
+  updateClientProfile
+} from "../api/miniapp";
+import type { AuthSessionResponse, ClientBookingItem, ModeName } from "../api/types";
 import { NewBookingFlow } from "../features/new-booking/NewBookingFlow";
 import { getTelegramInitData, getTelegramWebApp } from "../telegram/webapp";
 import styles from "./AppShellPage.module.scss";
@@ -31,11 +40,52 @@ function getFirstName(payload: AuthSessionResponse): string {
   return payload.user.first_name ?? payload.user.username ?? "друг";
 }
 
+function formatSlot(startAt: string | null, endAt: string | null): string {
+  if (!startAt || !endAt) {
+    return "Слот ещё не выбран";
+  }
+  const start = new Date(startAt);
+  const end = new Date(endAt);
+  const dateLabel = new Intl.DateTimeFormat("ru-RU", {
+    day: "numeric",
+    month: "long",
+    weekday: "long",
+  }).format(start);
+  const timeLabel = `${start.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })} - ${end.toLocaleTimeString("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit"
+  })}`;
+  return `${dateLabel}, ${timeLabel}`;
+}
+
+function statusLabel(status: string): string {
+  const mapping: Record<string, string> = {
+    draft: "Черновик",
+    pending_decision: "Ожидает решения",
+    confirmed: "Подтверждена",
+    reschedule_requested: "Запрошен перенос",
+    rejected: "Отклонена",
+    expired: "Истекла",
+    canceled_by_user: "Отменена вами",
+    canceled_by_admin: "Отменена администратором",
+    cancelled_by_user: "Отменена вами",
+    cancelled_by_admin: "Отменена администратором"
+  };
+  return mapping[status] ?? "В обработке";
+}
+
 export function AppShellPage() {
   const initData = useMemo(() => getTelegramInitData(), []);
+  const queryClient = useQueryClient();
   const [currentMode, setCurrentMode] = useState<ModeName | null>(null);
   const [activeTabKey, setActiveTabKey] = useState<string>("home");
   const [newBookingOpen, setNewBookingOpen] = useState(false);
+  const [actionMessage, setActionMessage] = useState<string>("");
+  const [profileForm, setProfileForm] = useState({
+    name: "",
+    email: "",
+    phone: ""
+  });
 
   useEffect(() => {
     const webApp = getTelegramWebApp();
@@ -66,6 +116,65 @@ export function AppShellPage() {
 
   const resolvedMode = currentMode ?? sessionQuery.data?.access.default_mode ?? null;
   const navItems = resolvedMode === "admin" ? adminNav : clientNav;
+
+  const activeBookingsQuery = useQuery({
+    queryKey: ["miniapp-client-active-bookings", initData],
+    queryFn: () => loadClientActiveBookings(initData),
+    enabled: Boolean(initData) && resolvedMode === "client" && activeTabKey === "bookings"
+  });
+
+  const historyBookingsQuery = useQuery({
+    queryKey: ["miniapp-client-history-bookings", initData],
+    queryFn: () => loadClientHistoryBookings(initData),
+    enabled: Boolean(initData) && resolvedMode === "client" && activeTabKey === "history"
+  });
+
+  const profileQuery = useQuery({
+    queryKey: ["miniapp-client-profile", initData],
+    queryFn: () => loadClientProfile(initData),
+    enabled: Boolean(initData) && resolvedMode === "client" && activeTabKey === "profile"
+  });
+
+  useEffect(() => {
+    if (!profileQuery.data) {
+      return;
+    }
+    setProfileForm({
+      name: profileQuery.data.profile.name ?? "",
+      email: profileQuery.data.profile.email ?? "",
+      phone: profileQuery.data.profile.phone ?? ""
+    });
+  }, [profileQuery.data]);
+
+  const cancelBookingMutation = useMutation({
+    mutationFn: (bookingId: number) => cancelClientBooking(bookingId, initData),
+    onSuccess: (payload) => {
+      setActionMessage(payload.message);
+      void queryClient.invalidateQueries({ queryKey: ["miniapp-client-active-bookings", initData] });
+      void queryClient.invalidateQueries({ queryKey: ["miniapp-client-history-bookings", initData] });
+    }
+  });
+
+  const startRescheduleMutation = useMutation({
+    mutationFn: (bookingId: number) => startClientReschedule(bookingId, initData),
+    onSuccess: (payload) => {
+      setActionMessage(`${payload.message} Найдено слотов: ${payload.available_slots.total_slots}.`);
+    }
+  });
+
+  const updateProfileMutation = useMutation({
+    mutationFn: () =>
+      updateClientProfile({
+        init_data: initData,
+        name: profileForm.name,
+        email: profileForm.email,
+        phone: profileForm.phone
+      }),
+    onSuccess: () => {
+      setActionMessage("Профиль обновлён.");
+      void queryClient.invalidateQueries({ queryKey: ["miniapp-client-profile", initData] });
+    }
+  });
 
   useEffect(() => {
     setActiveTabKey(navItems[0].key);
@@ -130,6 +239,41 @@ export function AppShellPage() {
   const isHomeTab = currentTab.key === "home";
   const canSwitchMode = authPayload.access.is_admin;
   const isProfileTab = currentTab.key === "profile";
+  const isClientCabinetTab = resolvedMode === "client" && currentTab.key !== "home";
+
+  function renderBookingCard(item: ClientBookingItem, showActions: boolean) {
+    return (
+      <article key={item.booking_id} className={styles.bookingCard}>
+        <h3>{item.topic || "Заявка без темы"}</h3>
+        <p className={styles.softText}>Статус: {statusLabel(item.status)}</p>
+        <p className={styles.softText}>Время: {formatSlot(item.slot_start_at, item.slot_end_at)}</p>
+        <p className={styles.softText}>
+          Формат: {item.meeting_format || "не указан"} • Длительность: {item.duration_minutes || "—"} мин
+        </p>
+        {item.comment ? <p className={styles.softText}>Комментарий: {item.comment}</p> : null}
+        {showActions ? (
+          <div className={styles.cardActions}>
+            <button
+              type="button"
+              className={styles.buttonGhost}
+              onClick={() => cancelBookingMutation.mutate(item.booking_id)}
+              disabled={cancelBookingMutation.isPending}
+            >
+              Отменить
+            </button>
+            <button
+              type="button"
+              className={styles.button}
+              onClick={() => startRescheduleMutation.mutate(item.booking_id)}
+              disabled={startRescheduleMutation.isPending}
+            >
+              Перенести
+            </button>
+          </div>
+        ) : null}
+      </article>
+    );
+  }
 
   return (
     <main className={styles.page}>
@@ -191,6 +335,75 @@ export function AppShellPage() {
                 </button>
               ) : null}
             </div>
+          </section>
+        ) : isClientCabinetTab ? (
+          <section className={styles.content}>
+            <h2>{currentTab.title}</h2>
+            <p className={styles.softText}>{currentTab.subtitle}</p>
+            {actionMessage ? <p className={styles.notice}>{actionMessage}</p> : null}
+
+            {currentTab.key === "bookings" ? (
+              <div className={styles.listBlock}>
+                {activeBookingsQuery.isPending ? <p className={styles.softText}>Загружаем активные заявки...</p> : null}
+                {activeBookingsQuery.isError ? (
+                  <p className={styles.errorText}>Не удалось загрузить активные заявки.</p>
+                ) : null}
+                {activeBookingsQuery.data?.items.length ? (
+                  activeBookingsQuery.data.items.map((item) => renderBookingCard(item, true))
+                ) : (
+                  <p className={styles.softText}>Активных заявок пока нет.</p>
+                )}
+              </div>
+            ) : null}
+
+            {currentTab.key === "history" ? (
+              <div className={styles.listBlock}>
+                {historyBookingsQuery.isPending ? <p className={styles.softText}>Загружаем историю...</p> : null}
+                {historyBookingsQuery.isError ? <p className={styles.errorText}>Не удалось загрузить историю.</p> : null}
+                {historyBookingsQuery.data?.items.length ? (
+                  historyBookingsQuery.data.items.map((item) => renderBookingCard(item, false))
+                ) : (
+                  <p className={styles.softText}>История встреч пока пуста.</p>
+                )}
+              </div>
+            ) : null}
+
+            {currentTab.key === "profile" ? (
+              <div className={styles.profileCard}>
+                <label className={styles.field}>
+                  <span>Имя</span>
+                  <input
+                    value={profileForm.name}
+                    onChange={(event) => setProfileForm((prev) => ({ ...prev, name: event.target.value }))}
+                  />
+                </label>
+                <label className={styles.field}>
+                  <span>Email</span>
+                  <input
+                    value={profileForm.email}
+                    onChange={(event) => setProfileForm((prev) => ({ ...prev, email: event.target.value }))}
+                  />
+                </label>
+                <label className={styles.field}>
+                  <span>Телефон</span>
+                  <input
+                    value={profileForm.phone}
+                    onChange={(event) => setProfileForm((prev) => ({ ...prev, phone: event.target.value }))}
+                  />
+                </label>
+                <p className={styles.softText}>
+                  Напоминания: скоро появятся в одном из следующих этапов.
+                </p>
+                <button
+                  type="button"
+                  className={styles.primaryCta}
+                  onClick={() => updateProfileMutation.mutate()}
+                  disabled={updateProfileMutation.isPending || profileQuery.isPending}
+                >
+                  Сохранить профиль
+                </button>
+              </div>
+            ) : null}
           </section>
         ) : (
           <section className={styles.content}>

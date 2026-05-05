@@ -66,6 +66,26 @@ class BookingRepository:
             .all()
         )
 
+    def list_history_completed_by_user(
+        self,
+        session: Session,
+        user_id: int,
+        now_msk_naive: datetime,
+        limit: int = 30,
+    ) -> list[Booking]:
+        return (
+            session.query(Booking)
+            .filter(
+                Booking.user_id == user_id,
+                Booking.status == "confirmed",
+                Booking.slot_end_at.isnot(None),
+                Booking.slot_end_at < now_msk_naive,
+            )
+            .order_by(Booking.slot_end_at.desc(), Booking.updated_at.desc())
+            .limit(limit)
+            .all()
+        )
+
     def list_pending_decision(self, session: Session, limit: int = 20) -> list[Booking]:
         return (
             session.query(Booking)

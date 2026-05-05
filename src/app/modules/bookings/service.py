@@ -82,6 +82,16 @@ class BookingService:
             logger.info("Active bookings listed: user_id=%s count=%s", user_id, len(bookings))
             return bookings
 
+    def list_history_bookings(self, user_id: int, now_msk_naive: datetime) -> list[Booking]:
+        with self._session_scope() as session:
+            bookings = self._repository.list_history_completed_by_user(
+                session=session,
+                user_id=user_id,
+                now_msk_naive=now_msk_naive,
+            )
+            logger.info("History bookings listed: user_id=%s count=%s", user_id, len(bookings))
+            return bookings
+
     def list_pending_decision_bookings(self, limit: int = 20) -> list[Booking]:
         with self._session_scope() as session:
             bookings = self._repository.list_admin_queue(session=session, limit=limit)

@@ -77,3 +77,49 @@ export type SubmittedBookingPayload = {
   slot_start_at: string;
   slot_end_at: string;
 };
+
+export type ClientBookingItem = {
+  booking_id: number;
+  status: string;
+  topic: string | null;
+  meeting_format: string | null;
+  duration_minutes: number | null;
+  slot_start_at: string | null;
+  slot_end_at: string | null;
+  comment: string | null;
+  calendar_event_id: string | null;
+  updated_at: string;
+};
+
+export type ClientBookingsListResponse = {
+  items: ClientBookingItem[];
+};
+
+export type ClientBookingActionResponse = {
+  booking_id: number;
+  status: string;
+  message: string;
+};
+
+export type ClientRescheduleStartResponse = {
+  booking_id: number;
+  status: string;
+  duration_minutes: number;
+  current_slot_start_at: string;
+  current_slot_end_at: string;
+  available_slots: BookingSlotsResponse;
+  message: string;
+};
+
+export type ClientProfilePayload = {
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  telegram_username: string | null;
+  reminder_supported: boolean;
+  reminder_enabled: boolean | null;
+};
+
+export type ClientProfileResponse = {
+  profile: ClientProfilePayload;
+};

@@ -1,6 +1,10 @@
 import type {
   AuthSessionResponse,
   BookingSlotsResponse,
+  ClientBookingActionResponse,
+  ClientBookingsListResponse,
+  ClientProfileResponse,
+  ClientRescheduleStartResponse,
   ModeName,
   SaveBookingDraftRequest,
   SaveBookingDraftResponse,
@@ -97,4 +101,59 @@ export function submitBooking(
     init_data: initData,
     slot_key: slotKey
   });
+}
+
+export async function loadClientActiveBookings(initData: string): Promise<ClientBookingsListResponse> {
+  const params = new URLSearchParams({ init_data: initData });
+  const response = await fetch(`${API_BASE_URL}/api/miniapp/client/bookings/active?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error("Failed to load active bookings.");
+  }
+  return (await response.json()) as ClientBookingsListResponse;
+}
+
+export async function loadClientHistoryBookings(initData: string): Promise<ClientBookingsListResponse> {
+  const params = new URLSearchParams({ init_data: initData });
+  const response = await fetch(`${API_BASE_URL}/api/miniapp/client/bookings/history?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error("Failed to load history.");
+  }
+  return (await response.json()) as ClientBookingsListResponse;
+}
+
+export function cancelClientBooking(
+  bookingId: number,
+  initData: string
+): Promise<ClientBookingActionResponse> {
+  return postJson<ClientBookingActionResponse>(`/api/miniapp/client/bookings/${bookingId}/cancel`, {
+    init_data: initData
+  });
+}
+
+export function startClientReschedule(
+  bookingId: number,
+  initData: string
+): Promise<ClientRescheduleStartResponse> {
+  return postJson<ClientRescheduleStartResponse>(`/api/miniapp/client/bookings/${bookingId}/reschedule/start`, {
+    init_data: initData
+  });
+}
+
+export async function loadClientProfile(initData: string): Promise<ClientProfileResponse> {
+  const params = new URLSearchParams({ init_data: initData });
+  const response = await fetch(`${API_BASE_URL}/api/miniapp/client/profile?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error("Failed to load profile.");
+  }
+  return (await response.json()) as ClientProfileResponse;
+}
+
+export function updateClientProfile(payload: {
+  init_data: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  reminder_enabled?: boolean | null;
+}): Promise<ClientProfileResponse> {
+  return postJson<ClientProfileResponse>("/api/miniapp/client/profile", payload);
 }
