@@ -374,7 +374,7 @@ def offer_waitlist_slot(
     send_telegram_text(
         chat_id=result.user.telegram_user_id,
         text=(
-            "Для вашей заявки есть предложение нового слота.\n\n"
+            "⏳ Для вашей заявки есть предложение нового слота.\n\n"
             f"Тема: {result.booking.topic or '—'}\n"
             f"Предложенное время: "
             f"{result.booking.requested_new_slot_start_at.strftime('%d.%m.%Y %H:%M') if result.booking.requested_new_slot_start_at else '—'}\n"

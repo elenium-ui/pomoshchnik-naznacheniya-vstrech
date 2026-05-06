@@ -1028,6 +1028,10 @@ export function AppShellPage() {
   });
 
   useEffect(() => {
+    if (resolvedMode === "admin") {
+      setActiveTabKey("requests");
+      return;
+    }
     setActiveTabKey("home");
   }, [resolvedMode]);
 
