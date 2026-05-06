@@ -4,7 +4,6 @@ import "dayjs/locale/ru";
 import { useMutation } from "@tanstack/react-query";
 
 import {
-  discardActiveDraft,
   joinBookingWaitlist,
   loadBookingSlots,
   saveBookingDraft,
@@ -78,7 +77,6 @@ export function NewBookingFlow({ initData, onClose, startMode = "resume", onDraf
   const [submitted, setSubmitted] = useState<SubmittedBookingPayload | null>(null);
   const [waitlistDate, setWaitlistDate] = useState<string>(dayjs().format("YYYY-MM-DD"));
   const [waitlistComment, setWaitlistComment] = useState("");
-  const [hasActiveDraft, setHasActiveDraft] = useState(false);
   const [submissionTarget, setSubmissionTarget] = useState<"slot" | "waitlist">("slot");
   const [waitlistPanelOpen, setWaitlistPanelOpen] = useState(false);
 
@@ -87,7 +85,6 @@ export function NewBookingFlow({ initData, onClose, startMode = "resume", onDraf
       startBookingSession(initData, { start_over: startOver }),
     onSuccess: (payload) => {
       setBookingId(payload.booking_id);
-      setHasActiveDraft(payload.has_active_draft);
       setForm((prev) => ({
         ...prev,
         name: payload.profile.name ?? "",
@@ -106,38 +103,6 @@ export function NewBookingFlow({ initData, onClose, startMode = "resume", onDraf
           comment: payload.active_draft?.comment ?? ""
         }));
       }
-    }
-  });
-
-  const startOverMutation = useMutation({
-    mutationFn: () => startBookingSession(initData, { start_over: true }),
-    onSuccess: (payload) => {
-      setBookingId(payload.booking_id);
-      setHasActiveDraft(false);
-      setStep(1);
-      setSlotsData(null);
-      setSelectedWeek("");
-      setSelectedDay("");
-      setSelectedSlot(null);
-      setSubmitted(null);
-      setSubmissionTarget("slot");
-      setForm({
-        name: payload.profile.name ?? "",
-        topic: "",
-        meetingFormat: "онлайн",
-        durationMinutes: 30,
-        email: payload.profile.email ?? "",
-        phone: payload.profile.phone ?? "",
-        comment: ""
-      });
-    }
-  });
-
-  const discardDraftMutation = useMutation({
-    mutationFn: () => discardActiveDraft(initData),
-    onSuccess: () => {
-      setHasActiveDraft(false);
-      startOverMutation.mutate();
     }
   });
 
@@ -321,6 +286,8 @@ export function NewBookingFlow({ initData, onClose, startMode = "resume", onDraf
     setSubmissionTarget("waitlist");
     setStep(8);
   }
+
+  const isWaitlistCompactActions = step === 7 && waitlistPanelOpen;
 
   if (startMutation.isPending) {
     return <div className={styles.overlay}>Подготавливаем форму новой заявки...</div>;
@@ -625,27 +592,12 @@ export function NewBookingFlow({ initData, onClose, startMode = "resume", onDraf
           ) : null}
         </div>
 
-        <footer className={styles.footer}>
-          {step > 1 && step <= 8 ? (
-            <button type="button" onClick={goBack} className={`${styles.ghostButton} ${styles.compactActionButton}`}>
-              Назад
-            </button>
-          ) : null}
-          {step <= 8 ? (
-            <button
-              type="button"
-              onClick={() => void saveDraftAndExit()}
-              className={`${styles.ghostButton} ${styles.compactActionButton}`}
-              disabled={!canSaveDraft || saveDraftMutation.isPending}
-            >
-              Сохранить черновик
-            </button>
-          ) : null}
+        <footer className={`${styles.footer} ${isWaitlistCompactActions ? styles.footerCompact : ""}`}>
           {step <= 8 ? (
             <button
               type="button"
               onClick={() => void goNext()}
-              className={`${styles.mainButton} ${styles.compactActionButton}`}
+              className={`${styles.mainButton} ${isWaitlistCompactActions ? styles.compactActionButton : ""}`}
               disabled={
                 !canGoNext ||
                 (step === 7 && !hasAvailableSlots) ||
@@ -666,18 +618,28 @@ export function NewBookingFlow({ initData, onClose, startMode = "resume", onDraf
               Закрыть
             </button>
           )}
+          {step <= 8 ? (
+            <div className={styles.footerSecondaryRow}>
+              {step > 1 ? (
+                <button
+                  type="button"
+                  onClick={goBack}
+                  className={`${styles.ghostButton} ${isWaitlistCompactActions ? styles.compactActionButton : ""}`}
+                >
+                  Назад
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => void saveDraftAndExit()}
+                className={`${styles.ghostButton} ${isWaitlistCompactActions ? styles.compactActionButton : ""}`}
+                disabled={!canSaveDraft || saveDraftMutation.isPending}
+              >
+                Сохранить черновик
+              </button>
+            </div>
+          ) : null}
         </footer>
-
-        {hasActiveDraft && step <= 8 ? (
-          <div className={styles.draftActionsRow}>
-            <button type="button" onClick={() => startOverMutation.mutate()} disabled={startOverMutation.isPending}>
-              Начать заново
-            </button>
-            <button type="button" onClick={() => discardDraftMutation.mutate()} disabled={discardDraftMutation.isPending}>
-              Удалить черновик
-            </button>
-          </div>
-        ) : null}
 
         {saveDraftMutation.isError ? <p className={styles.errorText}>{saveDraftMutation.error.message}</p> : null}
         {slotsMutation.isError ? <p className={styles.errorText}>{slotsMutation.error.message}</p> : null}

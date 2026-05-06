@@ -249,9 +249,19 @@
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  justify-content: flex-end;
+  justify-content: flex-start;
   padding-top: 10px;
   border-top: 1px solid rgba(112, 141, 164, 0.2);
+}
+
+.footerSecondaryRow {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+}
+
+.footerSecondaryRow .ghostButton {
+  flex: 1;
 }
 
 .mainButton,
@@ -318,23 +328,6 @@
   padding: 0 12px;
 }
 
-.draftActionsRow {
-  margin-top: 8px;
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.draftActionsRow button {
-  border: 1px solid rgba(112, 141, 164, 0.26);
-  background: #fff;
-  color: #627f96;
-  border-radius: 10px;
-  height: 34px;
-  padding: 0 10px;
-  font-size: 12px;
-}
-
 .summaryLine {
   color: var(--color-text-secondary);
   font-size: 15px;
@@ -385,31 +378,31 @@
     gap: 6px;
   }
 
-  .mainButton,
-  .ghostButton,
-  .compactActionButton {
+  .mainButton {
+    width: 100%;
+    height: 48px;
+    font-size: 15px;
+    border-radius: 12px;
+    padding: 0 18px;
+  }
+
+  .footerSecondaryRow {
+    gap: 8px;
+  }
+
+  .footerSecondaryRow .ghostButton {
+    height: 46px;
+    font-size: 14px;
+    border-radius: 12px;
+    padding: 0 14px;
+  }
+
+  .footerCompact .mainButton,
+  .footerCompact .ghostButton,
+  .footerCompact .compactActionButton {
     height: 40px;
     font-size: 13px;
     border-radius: 11px;
     padding: 0 12px;
-  }
-
-  .mainButton {
-    order: 3;
-    width: 100%;
-  }
-
-  .footer .ghostButton {
-    flex: 1;
-  }
-
-  .draftActionsRow {
-    margin-top: 6px;
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-
-  .draftActionsRow button {
-    height: 30px;
-    font-size: 11px;
   }
 }
