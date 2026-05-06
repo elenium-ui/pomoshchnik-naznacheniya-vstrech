@@ -9,6 +9,7 @@ MINIAPP_FRONTEND_HEALTHCHECK_URL="${MINIAPP_FRONTEND_HEALTHCHECK_URL:-http://127
 PUBLIC_HEALTHCHECK_URL="${PUBLIC_HEALTHCHECK_URL:-}"
 HEALTHCHECK_RETRIES="${HEALTHCHECK_RETRIES:-30}"
 HEALTHCHECK_SLEEP_SECONDS="${HEALTHCHECK_SLEEP_SECONDS:-2}"
+MIN_FREE_MB_BEFORE_BUILD="${MIN_FREE_MB_BEFORE_BUILD:-4096}"
 
 cd "$APP_DIR"
 
@@ -36,6 +37,22 @@ fi
 if ! command -v docker >/dev/null 2>&1; then
   echo "ERROR: docker is not installed."
   exit 1
+fi
+
+available_mb="$(df -Pm / | awk 'NR==2 {print $4}')"
+if [[ -z "${available_mb:-}" ]]; then
+  echo "WARN: cannot detect available disk space before build."
+else
+  echo "==> Deploy: free disk space before build: ${available_mb}MB"
+  if (( available_mb < MIN_FREE_MB_BEFORE_BUILD )); then
+    echo "==> Deploy: low disk space detected (<${MIN_FREE_MB_BEFORE_BUILD}MB), pruning Docker cache"
+    sudo docker builder prune -af || true
+    sudo docker image prune -af || true
+    sudo docker container prune -f || true
+    sudo docker volume prune -f || true
+    available_mb="$(df -Pm / | awk 'NR==2 {print $4}')"
+    echo "==> Deploy: free disk space after prune: ${available_mb}MB"
+  fi
 fi
 
 echo "==> Deploy: snapshot previous images for rollback"
