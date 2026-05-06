@@ -17,6 +17,8 @@ from app.application.services.booking_validation import (
     validate_phone,
     validate_topic,
 )
+from app.config import load_settings
+from app.web.api.notifications import send_telegram_text
 from app.web.api.dependencies.auth import get_auth_service
 from app.web.api.dependencies.services import MiniAppCoreServices, get_core_services
 from app.web.api.schemas.booking_flow import (
@@ -122,6 +124,10 @@ def _display_name(first_name: str | None, last_name: str | None, username: str |
     if username:
         return username
     return "Пользователь"
+
+
+def _format_name(user) -> str:
+    return user.name or user.telegram_display_name or "—"
 
 
 def _resolve_user(init_data: str, auth_service: MiniAppAuthService, core: MiniAppCoreServices):
@@ -368,6 +374,15 @@ def join_waitlist(
         session.user.telegram_user_id,
         payload.waitlist_date.isoformat(),
     )
+    admin_text = (
+        "Новая заявка в листе ожидания (Mini App)\n\n"
+        f"ID: {booking.id}\n"
+        f"Пользователь: {_format_name(user)}\n"
+        f"Telegram user ID: {user.telegram_user_id}\n"
+        f"Дата ожидания: {payload.waitlist_date.strftime('%d.%m.%Y')}\n"
+        f"Тема: {booking.topic or '—'}"
+    )
+    send_telegram_text(chat_id=load_settings().ADMIN_USER_ID, text=admin_text)
     return JoinWaitlistResponse(
         booking_id=booking.id,
         status=booking.status,
@@ -446,6 +461,16 @@ def submit_booking(
         session.user.telegram_user_id,
         payload.slot_key,
     )
+    admin_text = (
+        "Новая заявка из Mini App\n\n"
+        f"ID: {submitted.id}\n"
+        f"Пользователь: {_format_name(user)}\n"
+        f"Telegram user ID: {user.telegram_user_id}\n"
+        f"Тема: {submitted.topic or '—'}\n"
+        f"Дата/время: {submitted.slot_start_at.strftime('%d.%m.%Y %H:%M') if submitted.slot_start_at else '—'}\n"
+        f"Формат: {submitted.format or '—'}"
+    )
+    send_telegram_text(chat_id=load_settings().ADMIN_USER_ID, text=admin_text)
     return SubmittedBookingPayload(
         booking_id=submitted.id,
         status=submitted.status,

@@ -2215,7 +2215,10 @@ export function AppShellPage() {
           </section>
         )}
 
-        <nav className={styles.bottomNav}>
+        <nav
+          className={styles.bottomNav}
+          style={{ gridTemplateColumns: `repeat(${Math.max(visibleNavItems.length, 1)}, minmax(0, 1fr))` }}
+        >
           {visibleNavItems.map((item) => (
             <button
               key={item.key}
@@ -2241,9 +2244,9 @@ export function AppShellPage() {
               <button
                 type="button"
                 className={styles.adminAccessButton}
-                onClick={() => setActiveTabKey("home")}
+                onClick={() => modeSwitchMutation.mutate("client")}
               >
-                Вернуться на главную
+                Вернуться в клиентский кабинет
               </button>
             )}
           </div>

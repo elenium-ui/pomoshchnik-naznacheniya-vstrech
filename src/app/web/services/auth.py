@@ -67,7 +67,7 @@ class MiniAppAuthService:
         )
         is_admin = role == UserRole.ADMIN
         available_modes: tuple[str, ...] = ("client", "admin") if is_admin else ("client",)
-        default_mode = "admin" if is_admin else "client"
+        default_mode = "client"
 
         logger.info(
             "Mini App auth success: telegram_user_id=%s is_admin=%s",

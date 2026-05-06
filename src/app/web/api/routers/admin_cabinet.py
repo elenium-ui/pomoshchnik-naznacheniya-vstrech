@@ -6,6 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.web.api.notifications import send_telegram_text
 from app.web.api.dependencies.auth import get_auth_service
 from app.web.api.dependencies.services import MiniAppCoreServices, get_core_services
 from app.web.api.schemas.admin_cabinet import (
@@ -218,6 +219,17 @@ def confirm_booking(
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     logger.info("Mini App admin decision confirm: booking_id=%s", booking_id)
+    send_telegram_text(
+        chat_id=result.user.telegram_user_id,
+        text=(
+            "Ваша заявка подтверждена.\n\n"
+            f"Тема: {result.booking.topic or '—'}\n"
+            f"Дата/время: "
+            f"{result.booking.slot_start_at.strftime('%d.%m.%Y %H:%M') if result.booking.slot_start_at else '—'}\n"
+            f"Комментарий: {result.booking.admin_public_comment or '—'}\n"
+            f"Ссылка: {result.booking.meeting_link or '—'}"
+        ),
+    )
     return AdminBookingActionResponse(
         booking_id=result.booking.id,
         status=result.booking.status,
@@ -257,6 +269,14 @@ def reject_booking(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     logger.info("Mini App admin decision reject: booking_id=%s", booking_id)
+    send_telegram_text(
+        chat_id=result.user.telegram_user_id,
+        text=(
+            "Ваша заявка отклонена.\n\n"
+            f"Тема: {result.booking.topic or '—'}\n"
+            f"Комментарий администратора: {result.booking.admin_public_comment or '—'}"
+        ),
+    )
     return AdminBookingActionResponse(
         booking_id=result.booking.id,
         status=result.booking.status,
@@ -341,6 +361,16 @@ def offer_waitlist_slot(
         session.user.telegram_user_id,
         payload.slot_key,
     )
+    send_telegram_text(
+        chat_id=result.user.telegram_user_id,
+        text=(
+            "Для вашей заявки есть предложение нового слота.\n\n"
+            f"Тема: {result.booking.topic or '—'}\n"
+            f"Предложенное время: "
+            f"{result.booking.requested_new_slot_start_at.strftime('%d.%m.%Y %H:%M') if result.booking.requested_new_slot_start_at else '—'}\n"
+            "Откройте Mini App, чтобы принять или отклонить предложение."
+        ),
+    )
     return AdminBookingActionResponse(
         booking_id=result.booking.id,
         status=result.booking.status,
@@ -371,6 +401,14 @@ def reject_waitlist_booking(
         "Mini App waitlist rejected by admin: booking_id=%s admin_tg_id=%s",
         result.booking.id,
         session.user.telegram_user_id,
+    )
+    send_telegram_text(
+        chat_id=result.user.telegram_user_id,
+        text=(
+            "Заявка из листа ожидания отклонена.\n\n"
+            f"Тема: {result.booking.topic or '—'}\n"
+            f"Комментарий администратора: {result.booking.admin_public_comment or '—'}"
+        ),
     )
     return AdminBookingActionResponse(
         booking_id=result.booking.id,

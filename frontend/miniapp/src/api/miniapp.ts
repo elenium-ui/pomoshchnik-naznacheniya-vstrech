@@ -255,7 +255,7 @@ export function updateClientProfile(payload: {
   phone?: string;
   reminder_enabled?: boolean | null;
 }): Promise<ClientProfileResponse> {
-  return putJson<ClientProfileResponse>("/api/miniapp/client/profile", payload);
+  return postJson<ClientProfileResponse>("/api/miniapp/client/profile", payload);
 }
 
 export async function loadAdminBookings(params: {

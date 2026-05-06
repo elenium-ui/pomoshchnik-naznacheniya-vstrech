@@ -14,6 +14,8 @@ from app.application.services.booking_validation import (
     validate_name,
     validate_phone,
 )
+from app.config import load_settings
+from app.web.api.notifications import send_telegram_text
 from app.web.api.dependencies.auth import get_auth_service
 from app.web.api.dependencies.services import MiniAppCoreServices, get_core_services
 from app.web.api.schemas.booking_flow import BookingSlotsResponse, SlotOption, SlotTimeOption
@@ -115,6 +117,10 @@ def _display_name(first_name: str | None, last_name: str | None, username: str |
     if username:
         return username
     return "Пользователь"
+
+
+def _format_name(user) -> str:
+    return user.name or user.telegram_display_name or "—"
 
 
 def _resolve_user(init_data: str, auth_service: MiniAppAuthService, core: MiniAppCoreServices):
@@ -342,6 +348,17 @@ def submit_reschedule(
         user.id,
         payload.slot_key,
     )
+    send_telegram_text(
+        chat_id=load_settings().ADMIN_USER_ID,
+        text=(
+            "Клиент запросил перенос встречи (Mini App)\n\n"
+            f"ID заявки: {updated.id}\n"
+            f"Пользователь: {_format_name(user)}\n"
+            f"Telegram user ID: {user.telegram_user_id}\n"
+            f"Новый слот: "
+            f"{updated.requested_new_slot_start_at.strftime('%d.%m.%Y %H:%M') if updated.requested_new_slot_start_at else '—'}"
+        ),
+    )
     return ClientBookingActionResponse(
         booking_id=updated.id,
         status=updated.status,
@@ -391,6 +408,16 @@ def join_waitlist_from_client_cabinet(
         user.id,
         payload.waitlist_date.isoformat(),
     )
+    send_telegram_text(
+        chat_id=load_settings().ADMIN_USER_ID,
+        text=(
+            "Клиент добавил заявку в лист ожидания (Mini App)\n\n"
+            f"ID заявки: {updated.id}\n"
+            f"Пользователь: {_format_name(user)}\n"
+            f"Telegram user ID: {user.telegram_user_id}\n"
+            f"Дата ожидания: {payload.waitlist_date.strftime('%d.%m.%Y')}"
+        ),
+    )
     return ClientBookingActionResponse(
         booking_id=updated.id,
         status=updated.status,
@@ -421,6 +448,16 @@ def accept_waitlist_offer(
         updated.id,
         user.id,
     )
+    send_telegram_text(
+        chat_id=load_settings().ADMIN_USER_ID,
+        text=(
+            "Клиент принял предложенный слот (Mini App)\n\n"
+            f"ID заявки: {updated.id}\n"
+            f"Пользователь: {_format_name(user)}\n"
+            f"Telegram user ID: {user.telegram_user_id}\n"
+            f"Слот: {updated.slot_start_at.strftime('%d.%m.%Y %H:%M') if updated.slot_start_at else '—'}"
+        ),
+    )
     return ClientBookingActionResponse(
         booking_id=updated.id,
         status=updated.status,
@@ -449,6 +486,15 @@ def reject_waitlist_offer(
         updated.id,
         user.id,
     )
+    send_telegram_text(
+        chat_id=load_settings().ADMIN_USER_ID,
+        text=(
+            "Клиент отклонил предложенный слот (Mini App)\n\n"
+            f"ID заявки: {updated.id}\n"
+            f"Пользователь: {_format_name(user)}\n"
+            f"Telegram user ID: {user.telegram_user_id}"
+        ),
+    )
     return ClientBookingActionResponse(
         booking_id=updated.id,
         status=updated.status,
@@ -476,8 +522,7 @@ def get_profile(
     )
 
 
-@router.put("/profile", response_model=ClientProfileResponse)
-def update_profile(
+def _update_profile_impl(
     payload: ClientProfileUpdateRequest,
     auth_service: MiniAppAuthService = Depends(get_auth_service),
     core: MiniAppCoreServices = Depends(get_core_services),
@@ -519,3 +564,21 @@ def update_profile(
             reminder_enabled=bool(getattr(updated, "reminder_enabled", False)),
         )
     )
+
+
+@router.put("/profile", response_model=ClientProfileResponse)
+def update_profile_put(
+    payload: ClientProfileUpdateRequest,
+    auth_service: MiniAppAuthService = Depends(get_auth_service),
+    core: MiniAppCoreServices = Depends(get_core_services),
+) -> ClientProfileResponse:
+    return _update_profile_impl(payload=payload, auth_service=auth_service, core=core)
+
+
+@router.post("/profile", response_model=ClientProfileResponse)
+def update_profile_post(
+    payload: ClientProfileUpdateRequest,
+    auth_service: MiniAppAuthService = Depends(get_auth_service),
+    core: MiniAppCoreServices = Depends(get_core_services),
+) -> ClientProfileResponse:
+    return _update_profile_impl(payload=payload, auth_service=auth_service, core=core)
