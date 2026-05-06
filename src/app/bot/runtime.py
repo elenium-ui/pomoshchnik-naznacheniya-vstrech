@@ -57,8 +57,12 @@ async def run_polling_bot(settings: Settings) -> None:
     bot = Bot(token=settings.BOT_TOKEN)
     await _configure_telegram_ui(bot)
     dp = build_dispatcher(settings=settings, session_factory=session_factory)
-    jobs_service = JobsService(session_factory=session_factory)
-    jobs_task = asyncio.create_task(_background_jobs_loop(jobs_service=jobs_service, bot=bot, interval_seconds=60))
+    jobs_task: asyncio.Task | None = None
+    if settings.BOT_BACKGROUND_JOBS_ENABLED:
+        jobs_service = JobsService(session_factory=session_factory)
+        jobs_task = asyncio.create_task(_background_jobs_loop(jobs_service=jobs_service, bot=bot, interval_seconds=60))
+    else:
+        logger.info("Background scheduler is disabled in bot runtime by BOT_BACKGROUND_JOBS_ENABLED=false")
 
     logger.info("Starting Telegram bot in long polling mode.")
     try:
@@ -67,11 +71,12 @@ async def run_polling_bot(settings: Settings) -> None:
         )
         await dp.start_polling(bot)
     finally:
-        jobs_task.cancel()
-        try:
-            await jobs_task
-        except asyncio.CancelledError:
-            logger.info("Background scheduler stopped.")
+        if jobs_task is not None:
+            jobs_task.cancel()
+            try:
+                await jobs_task
+            except asyncio.CancelledError:
+                logger.info("Background scheduler stopped.")
         await bot.session.close()
         engine.dispose()
         logger.info("Bot stopped.")
@@ -95,10 +100,14 @@ async def run_webhook_bot(settings: Settings) -> None:
     bot = Bot(token=settings.BOT_TOKEN)
     await _configure_telegram_ui(bot)
     dp = build_dispatcher(settings=settings, session_factory=session_factory)
-    jobs_service = JobsService(session_factory=session_factory)
-    jobs_task = asyncio.create_task(
-        _background_jobs_loop(jobs_service=jobs_service, bot=bot, interval_seconds=60)
-    )
+    jobs_task: asyncio.Task | None = None
+    if settings.BOT_BACKGROUND_JOBS_ENABLED:
+        jobs_service = JobsService(session_factory=session_factory)
+        jobs_task = asyncio.create_task(
+            _background_jobs_loop(jobs_service=jobs_service, bot=bot, interval_seconds=60)
+        )
+    else:
+        logger.info("Background scheduler is disabled in bot runtime by BOT_BACKGROUND_JOBS_ENABLED=false")
 
     app = web.Application()
     app.router.add_get("/health", _health_handler)
@@ -138,11 +147,12 @@ async def run_webhook_bot(settings: Settings) -> None:
         while True:
             await asyncio.sleep(3600)
     finally:
-        jobs_task.cancel()
-        try:
-            await jobs_task
-        except asyncio.CancelledError:
-            logger.info("Background scheduler stopped.")
+        if jobs_task is not None:
+            jobs_task.cancel()
+            try:
+                await jobs_task
+            except asyncio.CancelledError:
+                logger.info("Background scheduler stopped.")
         await runner.cleanup()
         await bot.session.close()
         engine.dispose()

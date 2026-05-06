@@ -101,6 +101,9 @@ PYTHONPATH=src python -m app.main --run-jobs-once
 - `TELEGRAM_WEBHOOK_SECRET` — секрет заголовка `X-Telegram-Bot-Api-Secret-Token`;
 - `TELEGRAM_WEBHOOK_LISTEN_HOST` — host для HTTP сервера webhook (обычно `0.0.0.0`);
 - `TELEGRAM_WEBHOOK_LISTEN_PORT` — порт webhook сервера внутри контейнера (обычно `8080`);
+- `MINIAPP_PUBLIC_URL` — публичный `https://` URL Telegram Mini App для кнопки открытия в `/start`;
+- `MINIAPP_API_PUBLIC_URL` — публичный URL Mini App API для frontend build в production compose;
+- `BOT_BACKGROUND_JOBS_ENABLED` — запускать ли jobs-loop внутри bot runtime (для production лучше `false`, если есть отдельный `meeting-jobs` сервис);
 - `TELEGRAM_DROP_PENDING_UPDATES_ON_START` — удалять ли отложенные обновления при старте.
 
 Как поменять:

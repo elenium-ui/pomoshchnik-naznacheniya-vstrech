@@ -105,3 +105,25 @@ def test_settings_validation_success_for_webhook_mode(tmp_path):
     )
 
     validate_and_log_settings(settings)
+
+
+def test_settings_validation_fails_for_miniapp_url_without_https(tmp_path):
+    service_account_file = tmp_path / "sa.json"
+    service_account_file.write_text("{}", encoding="utf-8")
+
+    settings = Settings(
+        BOT_TOKEN="test_token",
+        ADMIN_USER_ID=123456,
+        TIMEZONE="Europe/Moscow",
+        GOOGLE_CALENDAR_ID="calendar@example.com",
+        GOOGLE_SERVICE_ACCOUNT_FILE=str(service_account_file),
+        DATABASE_URL="sqlite:///./data/test.db",
+        LOG_LEVEL="INFO",
+        MINIAPP_PUBLIC_URL="http://miniapp.local",
+    )
+
+    try:
+        validate_and_log_settings(settings)
+        assert False, "Expected RuntimeError"
+    except RuntimeError:
+        assert True

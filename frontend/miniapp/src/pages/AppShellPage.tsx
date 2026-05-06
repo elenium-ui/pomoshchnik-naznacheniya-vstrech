@@ -62,6 +62,7 @@ const clientNav: NavItem[] = [
 ];
 
 const adminNav: NavItem[] = [
+  { key: "home", title: "Главная", subtitle: "Запись на встречу с Еленой" },
   { key: "requests", title: "Заявки", subtitle: "Список входящих заявок" },
   { key: "calendar", title: "Календарь", subtitle: "Загрузка по дням" },
   { key: "settings", title: "Настройки", subtitle: "Доступность и правила записи" },

@@ -16,12 +16,24 @@ env/
 .env
 .env.*
 !.env.example
+!.env.production.example
 secrets/
 *.json
+!frontend/miniapp/package.json
+!frontend/miniapp/tsconfig.json
+!frontend/miniapp/tsconfig.app.json
+!frontend/miniapp/tsconfig.node.json
 
 # Runtime artifacts
 logs/*.log
+logs/*.log.*
+logs/*.log-*
+logs/*.gz
+logs/*.zip
+logs/*.tmp
 data/*.db
+data/*.db.bak*
+data/*.sqlite*
 
 # OS/editor
 .DS_Store
@@ -31,3 +43,6 @@ data/*.db
 # Frontend
 node_modules/
 dist/
+*.tsbuildinfo
+frontend/miniapp/vite.config.js
+frontend/miniapp/vite.config.d.ts

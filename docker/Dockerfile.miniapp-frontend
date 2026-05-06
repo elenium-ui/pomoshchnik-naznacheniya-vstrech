@@ -1,0 +1,18 @@
+FROM node:24-alpine AS build
+
+WORKDIR /app/frontend/miniapp
+
+COPY frontend/miniapp/package.json frontend/miniapp/package-lock.json* ./
+RUN npm install
+
+COPY frontend/miniapp/ ./
+
+ARG VITE_API_BASE_URL=http://localhost:8090
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+
+RUN npm run build
+
+FROM nginx:1.27-alpine
+
+COPY docker/nginx/miniapp.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/frontend/miniapp/dist /usr/share/nginx/html

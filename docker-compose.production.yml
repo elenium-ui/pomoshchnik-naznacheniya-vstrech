@@ -7,8 +7,59 @@ services:
     restart: unless-stopped
     env_file:
       - .env.production
+    environment:
+      BOT_BACKGROUND_JOBS_ENABLED: "false"
     ports:
       - "127.0.0.1:18080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./secrets:/app/secrets:ro
+
+  miniapp-api:
+    container_name: miniapp-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    command: >
+      sh -c "python -m app.main --check-config
+      && python -m app.main --health-check
+      && alembic upgrade head
+      && python -m app.web.runtime"
+    ports:
+      - "127.0.0.1:18090:8090"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./secrets:/app/secrets:ro
+
+  miniapp-frontend:
+    container_name: miniapp-frontend
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.miniapp-frontend
+      args:
+        VITE_API_BASE_URL: ""
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:15173:80"
+
+  meeting-jobs:
+    container_name: meeting-jobs
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    command: >
+      sh -c "python -m app.main --check-config
+      && python -m app.main --health-check
+      && alembic upgrade head
+      && python -m app.jobs.runtime"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs

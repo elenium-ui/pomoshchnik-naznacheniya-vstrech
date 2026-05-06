@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     TELEGRAM_WEBHOOK_LISTEN_HOST: str = "0.0.0.0"
     TELEGRAM_WEBHOOK_LISTEN_PORT: int = 8080
     TELEGRAM_DROP_PENDING_UPDATES_ON_START: bool = False
+    MINIAPP_PUBLIC_URL: Optional[str] = None
+    BOT_BACKGROUND_JOBS_ENABLED: bool = True
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -74,6 +76,9 @@ def validate_and_log_settings(settings: Settings) -> None:
         if settings.TELEGRAM_WEBHOOK_LISTEN_PORT <= 0:
             errors.append("TELEGRAM_WEBHOOK_LISTEN_PORT must be a positive integer.")
 
+    if settings.MINIAPP_PUBLIC_URL and not settings.MINIAPP_PUBLIC_URL.startswith("https://"):
+        errors.append("MINIAPP_PUBLIC_URL must start with https://")
+
     if errors:
         for error in errors:
             logger.error("Configuration validation error: %s", error)
@@ -83,7 +88,8 @@ def validate_and_log_settings(settings: Settings) -> None:
         (
             "Configuration loaded: BOT_TOKEN=%s ADMIN_USER_ID=%s TIMEZONE=%s "
             "GOOGLE_CALENDAR_ID=%s DATABASE_URL=%s TELEGRAM_DELIVERY_MODE=%s "
-            "TELEGRAM_WEBHOOK_BASE_URL=%s TELEGRAM_WEBHOOK_PATH=%s"
+            "TELEGRAM_WEBHOOK_BASE_URL=%s TELEGRAM_WEBHOOK_PATH=%s "
+            "MINIAPP_PUBLIC_URL=%s BOT_BACKGROUND_JOBS_ENABLED=%s"
         ),
         _mask(settings.BOT_TOKEN),
         settings.ADMIN_USER_ID,
@@ -93,6 +99,8 @@ def validate_and_log_settings(settings: Settings) -> None:
         settings.TELEGRAM_DELIVERY_MODE,
         settings.TELEGRAM_WEBHOOK_BASE_URL or "<none>",
         settings.TELEGRAM_WEBHOOK_PATH,
+        settings.MINIAPP_PUBLIC_URL or "<none>",
+        settings.BOT_BACKGROUND_JOBS_ENABLED,
     )
 
 

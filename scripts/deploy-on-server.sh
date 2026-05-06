@@ -4,6 +4,8 @@ set -euo pipefail
 APP_DIR="${APP_DIR:-$(pwd)}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.production.yml}"
 INTERNAL_HEALTHCHECK_URL="${INTERNAL_HEALTHCHECK_URL:-http://127.0.0.1:18080/health}"
+MINIAPP_API_HEALTHCHECK_URL="${MINIAPP_API_HEALTHCHECK_URL:-http://127.0.0.1:18090/health}"
+MINIAPP_FRONTEND_HEALTHCHECK_URL="${MINIAPP_FRONTEND_HEALTHCHECK_URL:-http://127.0.0.1:15173/}"
 PUBLIC_HEALTHCHECK_URL="${PUBLIC_HEALTHCHECK_URL:-}"
 HEALTHCHECK_RETRIES="${HEALTHCHECK_RETRIES:-30}"
 HEALTHCHECK_SLEEP_SECONDS="${HEALTHCHECK_SLEEP_SECONDS:-2}"
@@ -36,6 +38,15 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
+echo "==> Deploy: snapshot previous images for rollback"
+services=(meeting-bot miniapp-api miniapp-frontend meeting-jobs)
+for service in "${services[@]}"; do
+  image_id="$(sudo docker compose -f "$COMPOSE_FILE" images -q "$service" 2>/dev/null || true)"
+  if [[ -n "$image_id" ]]; then
+    sudo docker tag "$image_id" "${service}:previous" || true
+  fi
+done
+
 echo "==> Deploy: docker compose up -d --build"
 sudo docker compose -f "$COMPOSE_FILE" up -d --build
 
@@ -66,12 +77,29 @@ if [[ "$delivery_mode" == "webhook" ]]; then
   fi
 else
   echo "==> Deploy: mode=polling, checking running service state"
-  if ! sudo docker compose -f "$COMPOSE_FILE" ps --status running --services | grep -qx "meeting-bot"; then
-    echo "ERROR: Service meeting-bot is not running."
-    echo "==> Recent logs"
-    sudo docker compose -f "$COMPOSE_FILE" logs --tail 120
-    exit 1
-  fi
+  required_services=(meeting-bot miniapp-api miniapp-frontend meeting-jobs)
+  for service in "${required_services[@]}"; do
+    if ! sudo docker compose -f "$COMPOSE_FILE" ps --status running --services | grep -qx "$service"; then
+      echo "ERROR: Service $service is not running."
+      echo "==> Recent logs"
+      sudo docker compose -f "$COMPOSE_FILE" logs --tail 120
+      exit 1
+    fi
+  done
 fi
+
+echo "==> Deploy: checking Mini App API health: $MINIAPP_API_HEALTHCHECK_URL"
+curl -fsS "$MINIAPP_API_HEALTHCHECK_URL" >/dev/null || {
+  echo "ERROR: Mini App API health-check failed: $MINIAPP_API_HEALTHCHECK_URL"
+  sudo docker compose -f "$COMPOSE_FILE" logs --tail 120 miniapp-api
+  exit 1
+}
+
+echo "==> Deploy: checking Mini App frontend health: $MINIAPP_FRONTEND_HEALTHCHECK_URL"
+curl -fsS "$MINIAPP_FRONTEND_HEALTHCHECK_URL" >/dev/null || {
+  echo "ERROR: Mini App frontend health-check failed: $MINIAPP_FRONTEND_HEALTHCHECK_URL"
+  sudo docker compose -f "$COMPOSE_FILE" logs --tail 120 miniapp-frontend
+  exit 1
+}
 
 echo "==> Deploy: success"
