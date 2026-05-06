@@ -9,11 +9,14 @@ from app.config import load_settings
 logger = logging.getLogger(__name__)
 
 
-def send_telegram_text(chat_id: int, text: str) -> None:
+def send_telegram_text(chat_id: int, text: str, reply_markup: dict | None = None) -> None:
     settings = load_settings()
     token = settings.BOT_TOKEN
     endpoint = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = parse.urlencode({"chat_id": str(chat_id), "text": text}).encode("utf-8")
+    form_data = {"chat_id": str(chat_id), "text": text}
+    if reply_markup is not None:
+        form_data["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False)
+    payload = parse.urlencode(form_data).encode("utf-8")
     req = request.Request(endpoint, data=payload, method="POST")
     req.add_header("Content-Type", "application/x-www-form-urlencoded")
     try:

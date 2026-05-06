@@ -1057,6 +1057,108 @@ def build_booking_router(settings: Settings, session_factory: sessionmaker) -> R
             await prompt_reschedule_slot_selection(callback.message, state, booking)
         await callback.answer()
 
+    @router.callback_query(F.data.startswith("user:waitlist_accept:"))
+    async def user_accept_waitlist_offer(callback: CallbackQuery) -> None:
+        if not callback.from_user:
+            return
+        payload = callback.data or ""
+        try:
+            booking_id = int(payload.split(":")[2])
+        except (IndexError, ValueError):
+            await callback.answer("Некорректная команда.", show_alert=True)
+            return
+
+        telegram_user = callback.from_user
+        user = user_service.ensure_user_from_telegram(
+            telegram_user_id=telegram_user.id,
+            telegram_username=telegram_user.username,
+            telegram_display_name=telegram_user.full_name,
+        )
+        try:
+            booking = booking_service.accept_waitlist_offer_by_user(
+                booking_id=booking_id,
+                user_id=user.id,
+                user_telegram_user_id=telegram_user.id,
+            )
+        except ValueError as exc:
+            await callback.answer(str(exc), show_alert=True)
+            return
+
+        if callback.message:
+            await callback.message.answer(
+                "✅ Слот принят. Заявка подтверждена.\n\n"
+                + _format_booking_card_line(booking, include_status_badge=False)
+            )
+        try:
+            username_line = (
+                f"Telegram: @{user.telegram_username}"
+                if user.telegram_username
+                else "Telegram: не указан"
+            )
+            await callback.bot.send_message(
+                chat_id=settings.ADMIN_USER_ID,
+                text=(
+                    "✅ Клиент принял предложенный слот.\n\n"
+                    f"Заявка ID: {booking.id}\n"
+                    f"Пользователь: {user.name or user.telegram_display_name or '—'}\n"
+                    f"{username_line}"
+                ),
+            )
+        except Exception:
+            logger.exception("Failed to notify admin after waitlist accept: booking_id=%s", booking.id)
+        await callback.answer("Слот принят.")
+
+    @router.callback_query(F.data.startswith("user:waitlist_reject:"))
+    async def user_reject_waitlist_offer(callback: CallbackQuery) -> None:
+        if not callback.from_user:
+            return
+        payload = callback.data or ""
+        try:
+            booking_id = int(payload.split(":")[2])
+        except (IndexError, ValueError):
+            await callback.answer("Некорректная команда.", show_alert=True)
+            return
+
+        telegram_user = callback.from_user
+        user = user_service.ensure_user_from_telegram(
+            telegram_user_id=telegram_user.id,
+            telegram_username=telegram_user.username,
+            telegram_display_name=telegram_user.full_name,
+        )
+        try:
+            booking = booking_service.reject_waitlist_offer_by_user(
+                booking_id=booking_id,
+                user_id=user.id,
+                user_telegram_user_id=telegram_user.id,
+            )
+        except ValueError as exc:
+            await callback.answer(str(exc), show_alert=True)
+            return
+
+        if callback.message:
+            await callback.message.answer(
+                "❌ Предложенный слот отклонён. Заявка возвращена в лист ожидания.\n\n"
+                + _format_booking_card_line(booking, include_status_badge=False),
+            )
+        try:
+            username_line = (
+                f"Telegram: @{user.telegram_username}"
+                if user.telegram_username
+                else "Telegram: не указан"
+            )
+            await callback.bot.send_message(
+                chat_id=settings.ADMIN_USER_ID,
+                text=(
+                    "❌ Клиент отклонил предложенный слот.\n\n"
+                    f"Заявка ID: {booking.id}\n"
+                    f"Пользователь: {user.name or user.telegram_display_name or '—'}\n"
+                    f"{username_line}"
+                ),
+            )
+        except Exception:
+            logger.exception("Failed to notify admin after waitlist reject: booking_id=%s", booking.id)
+        await callback.answer("Слот отклонён.")
+
     @router.message(BookingForm.reschedule_slot_selection)
     async def process_reschedule_slot_selection(message: Message, state: FSMContext) -> None:
         if not message.from_user:

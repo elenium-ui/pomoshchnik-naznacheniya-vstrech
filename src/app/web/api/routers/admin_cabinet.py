@@ -380,6 +380,14 @@ def offer_waitlist_slot(
             f"{result.booking.requested_new_slot_start_at.strftime('%d.%m.%Y %H:%M') if result.booking.requested_new_slot_start_at else '—'}\n"
             "Откройте Mini App, чтобы принять или отклонить предложение."
         ),
+        reply_markup={
+            "inline_keyboard": [
+                [
+                    {"text": "✅ Принять слот", "callback_data": f"user:waitlist_accept:{result.booking.id}"},
+                    {"text": "❌ Отклонить", "callback_data": f"user:waitlist_reject:{result.booking.id}"},
+                ]
+            ]
+        },
     )
     return AdminBookingActionResponse(
         booking_id=result.booking.id,
