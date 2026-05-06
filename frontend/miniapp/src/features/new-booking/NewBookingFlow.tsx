@@ -561,7 +561,7 @@ export function NewBookingFlow({ initData, onClose, startMode = "resume", onDraf
                   </label>
                   <button
                     type="button"
-                    className={styles.ghostButton}
+                    className={styles.waitlistPrimaryButton}
                     onClick={goToWaitlistConfirmation}
                     disabled={joinWaitlistMutation.isPending || submitMutation.isPending}
                   >
@@ -627,7 +627,7 @@ export function NewBookingFlow({ initData, onClose, startMode = "resume", onDraf
 
         <footer className={styles.footer}>
           {step > 1 && step <= 8 ? (
-            <button type="button" onClick={goBack} className={styles.ghostButton}>
+            <button type="button" onClick={goBack} className={`${styles.ghostButton} ${styles.compactActionButton}`}>
               Назад
             </button>
           ) : null}
@@ -635,7 +635,7 @@ export function NewBookingFlow({ initData, onClose, startMode = "resume", onDraf
             <button
               type="button"
               onClick={() => void saveDraftAndExit()}
-              className={styles.ghostButton}
+              className={`${styles.ghostButton} ${styles.compactActionButton}`}
               disabled={!canSaveDraft || saveDraftMutation.isPending}
             >
               Сохранить черновик
@@ -645,7 +645,7 @@ export function NewBookingFlow({ initData, onClose, startMode = "resume", onDraf
             <button
               type="button"
               onClick={() => void goNext()}
-              className={styles.mainButton}
+              className={`${styles.mainButton} ${styles.compactActionButton}`}
               disabled={
                 !canGoNext ||
                 (step === 7 && !hasAvailableSlots) ||
@@ -669,7 +669,7 @@ export function NewBookingFlow({ initData, onClose, startMode = "resume", onDraf
         </footer>
 
         {hasActiveDraft && step <= 8 ? (
-          <div className={styles.errorActions}>
+          <div className={styles.draftActionsRow}>
             <button type="button" onClick={() => startOverMutation.mutate()} disabled={startOverMutation.isPending}>
               Начать заново
             </button>

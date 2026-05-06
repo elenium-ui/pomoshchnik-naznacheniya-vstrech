@@ -72,6 +72,7 @@
 .field input,
 .field select,
 .field textarea {
+  box-sizing: border-box;
   width: 100%;
   border: 1px solid rgba(112, 141, 164, 0.3);
   border-radius: 12px;
@@ -82,13 +83,13 @@
 }
 
 .field textarea {
-  min-height: 34vh;
+  min-height: 26vh;
   padding-top: 12px;
   resize: vertical;
 }
 
 .compactTextarea {
-  min-height: 110px !important;
+  min-height: 96px !important;
 }
 
 .segment {
@@ -246,6 +247,7 @@
 .footer {
   margin-top: 12px;
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   justify-content: flex-end;
   padding-top: 10px;
@@ -273,6 +275,22 @@
   color: var(--color-text-secondary);
 }
 
+.waitlistPrimaryButton {
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid rgba(49, 137, 97, 0.34);
+  background: linear-gradient(145deg, #c8f4de 0%, #aee7c9 100%);
+  color: #1e5a41;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.compactActionButton {
+  height: 42px;
+  padding: 0 14px;
+  font-size: 14px;
+}
+
 .errorText {
   margin-top: 10px;
   color: #b2474e;
@@ -298,6 +316,23 @@
   border-radius: 10px;
   height: 36px;
   padding: 0 12px;
+}
+
+.draftActionsRow {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.draftActionsRow button {
+  border: 1px solid rgba(112, 141, 164, 0.26);
+  background: #fff;
+  color: #627f96;
+  border-radius: 10px;
+  height: 34px;
+  padding: 0 10px;
+  font-size: 12px;
 }
 
 .summaryLine {
@@ -330,17 +365,51 @@
     border-right: none;
   }
 
+  .body {
+    padding-bottom: 14px;
+  }
+
   .header h2 {
     font-size: 20px;
   }
 
   .footer {
-    flex-direction: column-reverse;
-    gap: 8px;
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+    margin-top: 8px;
+    padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
+    border-top: 1px solid rgba(112, 141, 164, 0.2);
+    background: linear-gradient(180deg, rgba(247, 251, 255, 0.94) 0%, rgba(247, 251, 255, 1) 55%);
+    flex-direction: row;
+    gap: 6px;
   }
 
   .mainButton,
-  .ghostButton {
+  .ghostButton,
+  .compactActionButton {
+    height: 40px;
+    font-size: 13px;
+    border-radius: 11px;
+    padding: 0 12px;
+  }
+
+  .mainButton {
+    order: 3;
     width: 100%;
+  }
+
+  .footer .ghostButton {
+    flex: 1;
+  }
+
+  .draftActionsRow {
+    margin-top: 6px;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .draftActionsRow button {
+    height: 30px;
+    font-size: 11px;
   }
 }
