@@ -6,7 +6,7 @@ import logging
 from aiogram import Bot
 from aiohttp import web
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
-from aiogram.types import BotCommand, MenuButtonCommands
+from aiogram.types import BotCommand, MenuButtonCommands, MenuButtonWebApp, WebAppInfo
 
 from app.bot.dispatcher import build_dispatcher
 from app.config import Settings
@@ -34,8 +34,8 @@ async def _background_jobs_loop(
         await asyncio.sleep(interval_seconds)
 
 
-async def _configure_telegram_ui(bot: Bot) -> None:
-    """Set command menu so user can tap /start without manual typing."""
+async def _configure_telegram_ui(bot: Bot, settings: Settings) -> None:
+    """Configure Telegram menu with a direct Mini App entry point."""
     try:
         await bot.set_my_commands(
             [
@@ -43,8 +43,14 @@ async def _configure_telegram_ui(bot: Bot) -> None:
                 BotCommand(command="admin", description="Открыть меню администратора"),
             ]
         )
-        await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
-        logger.info("Telegram command menu configured.")
+        if settings.MINIAPP_PUBLIC_URL:
+            await bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(text="Открыть Mini App", web_app=WebAppInfo(url=settings.MINIAPP_PUBLIC_URL))
+            )
+            logger.info("Telegram menu button configured as Mini App launcher.")
+        else:
+            await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+            logger.info("Telegram command menu configured.")
     except Exception:
         logger.exception("Failed to configure Telegram command menu.")
 
@@ -55,7 +61,7 @@ async def run_polling_bot(settings: Settings) -> None:
     session_factory = build_session_factory(engine)
 
     bot = Bot(token=settings.BOT_TOKEN)
-    await _configure_telegram_ui(bot)
+    await _configure_telegram_ui(bot, settings)
     dp = build_dispatcher(settings=settings, session_factory=session_factory)
     jobs_task: asyncio.Task | None = None
     if settings.BOT_BACKGROUND_JOBS_ENABLED:
@@ -98,7 +104,7 @@ async def run_webhook_bot(settings: Settings) -> None:
     session_factory = build_session_factory(engine)
 
     bot = Bot(token=settings.BOT_TOKEN)
-    await _configure_telegram_ui(bot)
+    await _configure_telegram_ui(bot, settings)
     dp = build_dispatcher(settings=settings, session_factory=session_factory)
     jobs_task: asyncio.Task | None = None
     if settings.BOT_BACKGROUND_JOBS_ENABLED:

@@ -123,6 +123,13 @@ def _format_name(user) -> str:
     return user.name or user.telegram_display_name or "—"
 
 
+def _format_telegram_username(user) -> str:
+    username = (user.telegram_username or "").strip()
+    if not username:
+        return "не указан"
+    return f"@{username}" if not username.startswith("@") else username
+
+
 def _resolve_user(init_data: str, auth_service: MiniAppAuthService, core: MiniAppCoreServices):
     try:
         session = auth_service.build_session(init_data)
@@ -354,7 +361,7 @@ def submit_reschedule(
             "Клиент запросил перенос встречи (Mini App)\n\n"
             f"ID заявки: {updated.id}\n"
             f"Пользователь: {_format_name(user)}\n"
-            f"Telegram user ID: {user.telegram_user_id}\n"
+            f"Telegram: {_format_telegram_username(user)}\n"
             f"Новый слот: "
             f"{updated.requested_new_slot_start_at.strftime('%d.%m.%Y %H:%M') if updated.requested_new_slot_start_at else '—'}"
         ),
@@ -414,7 +421,7 @@ def join_waitlist_from_client_cabinet(
             "Клиент добавил заявку в лист ожидания (Mini App)\n\n"
             f"ID заявки: {updated.id}\n"
             f"Пользователь: {_format_name(user)}\n"
-            f"Telegram user ID: {user.telegram_user_id}\n"
+            f"Telegram: {_format_telegram_username(user)}\n"
             f"Дата ожидания: {payload.waitlist_date.strftime('%d.%m.%Y')}"
         ),
     )
@@ -454,7 +461,7 @@ def accept_waitlist_offer(
             "Клиент принял предложенный слот (Mini App)\n\n"
             f"ID заявки: {updated.id}\n"
             f"Пользователь: {_format_name(user)}\n"
-            f"Telegram user ID: {user.telegram_user_id}\n"
+            f"Telegram: {_format_telegram_username(user)}\n"
             f"Слот: {updated.slot_start_at.strftime('%d.%m.%Y %H:%M') if updated.slot_start_at else '—'}"
         ),
     )
@@ -492,7 +499,7 @@ def reject_waitlist_offer(
             "Клиент отклонил предложенный слот (Mini App)\n\n"
             f"ID заявки: {updated.id}\n"
             f"Пользователь: {_format_name(user)}\n"
-            f"Telegram user ID: {user.telegram_user_id}"
+            f"Telegram: {_format_telegram_username(user)}"
         ),
     )
     return ClientBookingActionResponse(

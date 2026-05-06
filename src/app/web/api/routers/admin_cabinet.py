@@ -221,13 +221,23 @@ def confirm_booking(
     logger.info("Mini App admin decision confirm: booking_id=%s", booking_id)
     send_telegram_text(
         chat_id=result.user.telegram_user_id,
-        text=(
-            "Ваша заявка подтверждена.\n\n"
-            f"Тема: {result.booking.topic or '—'}\n"
-            f"Дата/время: "
-            f"{result.booking.slot_start_at.strftime('%d.%m.%Y %H:%M') if result.booking.slot_start_at else '—'}\n"
-            f"Комментарий: {result.booking.admin_public_comment or '—'}\n"
-            f"Ссылка: {result.booking.meeting_link or '—'}"
+        text="\n".join(
+            line
+            for line in [
+                "✅ Ваша заявка подтверждена.",
+                "",
+                f"Тема: {result.booking.topic or '—'}",
+                (
+                    "Дата/время: "
+                    f"{result.booking.slot_start_at.strftime('%d.%m.%Y %H:%M') if result.booking.slot_start_at else '—'}"
+                ),
+                (
+                    f"Комментарий: {result.booking.admin_public_comment}"
+                    if (result.booking.admin_public_comment or "").strip()
+                    else ""
+                ),
+            ]
+            if line
         ),
     )
     return AdminBookingActionResponse(
@@ -272,7 +282,7 @@ def reject_booking(
     send_telegram_text(
         chat_id=result.user.telegram_user_id,
         text=(
-            "Ваша заявка отклонена.\n\n"
+            "❌ Ваша заявка отклонена.\n\n"
             f"Тема: {result.booking.topic or '—'}\n"
             f"Комментарий администратора: {result.booking.admin_public_comment or '—'}"
         ),

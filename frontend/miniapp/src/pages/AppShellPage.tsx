@@ -399,6 +399,11 @@ export function AppShellPage() {
     mutationFn: (mode: ModeName) => switchAuthMode(initData, mode),
     onSuccess: (payload) => {
       setCurrentMode(payload.access.current_mode);
+      if (payload.access.current_mode === "admin") {
+        setActiveTabKey("requests");
+      } else {
+        setActiveTabKey("home");
+      }
     }
   });
 
@@ -1270,7 +1275,7 @@ export function AppShellPage() {
             </a>
           </p>
         ) : null}
-        {item.google_calendar_url ? (
+        {item.status === "confirmed" && item.google_calendar_url ? (
           <p className={styles.softText}>
             <a
               href={item.google_calendar_url}
