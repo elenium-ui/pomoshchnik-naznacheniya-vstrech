@@ -48,6 +48,29 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function putJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    let detail = "API request failed.";
+    try {
+      const payload = (await response.json()) as ApiErrorPayload;
+      if (payload.detail) {
+        detail = payload.detail;
+      }
+    } catch {
+      detail = "API request failed.";
+    }
+    throw new Error(detail);
+  }
+
+  return (await response.json()) as T;
+}
+
 export function createAuthSession(initData: string): Promise<AuthSessionResponse> {
   return postJson<AuthSessionResponse>("/api/miniapp/auth/session", {
     init_data: initData
@@ -232,7 +255,7 @@ export function updateClientProfile(payload: {
   phone?: string;
   reminder_enabled?: boolean | null;
 }): Promise<ClientProfileResponse> {
-  return postJson<ClientProfileResponse>("/api/miniapp/client/profile", payload);
+  return putJson<ClientProfileResponse>("/api/miniapp/client/profile", payload);
 }
 
 export async function loadAdminBookings(params: {

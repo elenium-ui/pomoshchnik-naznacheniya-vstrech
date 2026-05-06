@@ -65,8 +65,7 @@ const adminNav: NavItem[] = [
   { key: "home", title: "Главная", subtitle: "Запись на встречу с Еленой" },
   { key: "requests", title: "Заявки", subtitle: "Список входящих заявок" },
   { key: "calendar", title: "Календарь", subtitle: "Загрузка по дням" },
-  { key: "settings", title: "Настройки", subtitle: "Доступность и правила записи" },
-  { key: "profile", title: "Профиль", subtitle: "Режим и личные данные" }
+  { key: "settings", title: "Настройки", subtitle: "Доступность и правила записи" }
 ];
 
 function getFirstName(payload: AuthSessionResponse): string {
@@ -405,6 +404,8 @@ export function AppShellPage() {
 
   const resolvedMode = currentMode ?? sessionQuery.data?.access.default_mode ?? null;
   const navItems = resolvedMode === "admin" ? adminNav : clientNav;
+  const visibleNavItems =
+    resolvedMode === "admin" ? adminNav.filter((item) => item.key !== "home") : navItems;
   const calendarQueryDays = useMemo(() => {
     if (!calendarUseCurrentWeek) {
       return 7;
@@ -1022,7 +1023,7 @@ export function AppShellPage() {
   });
 
   useEffect(() => {
-    setActiveTabKey(navItems[0].key);
+    setActiveTabKey("home");
   }, [resolvedMode]);
 
   const brandNode = (
@@ -2215,7 +2216,7 @@ export function AppShellPage() {
         )}
 
         <nav className={styles.bottomNav}>
-          {navItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <button
               key={item.key}
               type="button"
@@ -2240,7 +2241,7 @@ export function AppShellPage() {
               <button
                 type="button"
                 className={styles.adminAccessButton}
-                onClick={() => modeSwitchMutation.mutate("client")}
+                onClick={() => setActiveTabKey("home")}
               >
                 Вернуться на главную
               </button>
