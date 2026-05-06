@@ -477,7 +477,18 @@ def submit_booking(
         f"Дата/время: {submitted.slot_start_at.strftime('%d.%m.%Y %H:%M') if submitted.slot_start_at else '—'}\n"
         f"Формат: {submitted.format or '—'}"
     )
-    send_telegram_text(chat_id=load_settings().ADMIN_USER_ID, text=admin_text)
+    send_telegram_text(
+        chat_id=load_settings().ADMIN_USER_ID,
+        text=admin_text,
+        reply_markup={
+            "inline_keyboard": [
+                [
+                    {"text": "✅ Подтвердить", "callback_data": f"admin:confirm:{submitted.id}"},
+                    {"text": "❌ Отклонить", "callback_data": f"admin:reject:{submitted.id}"},
+                ]
+            ]
+        },
+    )
     return SubmittedBookingPayload(
         booking_id=submitted.id,
         status=submitted.status,

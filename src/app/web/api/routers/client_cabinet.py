@@ -365,6 +365,14 @@ def submit_reschedule(
             f"Новый слот: "
             f"{updated.requested_new_slot_start_at.strftime('%d.%m.%Y %H:%M') if updated.requested_new_slot_start_at else '—'}"
         ),
+        reply_markup={
+            "inline_keyboard": [
+                [
+                    {"text": "✅ Подтвердить", "callback_data": f"admin:confirm:{updated.id}"},
+                    {"text": "❌ Отклонить", "callback_data": f"admin:reject:{updated.id}"},
+                ]
+            ]
+        },
     )
     return ClientBookingActionResponse(
         booking_id=updated.id,
