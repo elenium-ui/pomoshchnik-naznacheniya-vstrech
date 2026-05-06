@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import time
+from datetime import date, timedelta
 from urllib.parse import urlencode
 
 from fastapi.testclient import TestClient
@@ -178,3 +179,68 @@ def test_stage3_submit_rejects_unknown_slot_key(tmp_path):
     )
     assert response.status_code == 409
 
+
+def test_stage7_single_active_draft_is_reused_and_can_start_over(tmp_path):
+    client = _build_client(tmp_path)
+    init_data = _build_init_data(bot_token=BOT_TOKEN, user_id=420903)
+
+    first_start = client.post("/api/miniapp/bookings/new/session", json={"init_data": init_data})
+    assert first_start.status_code == 200
+    first_payload = first_start.json()
+    first_booking_id = first_payload["booking_id"]
+    assert first_payload["has_active_draft"] is False
+
+    second_start = client.post("/api/miniapp/bookings/new/session", json={"init_data": init_data})
+    assert second_start.status_code == 200
+    second_payload = second_start.json()
+    assert second_payload["booking_id"] == first_booking_id
+    assert second_payload["has_active_draft"] is True
+    assert second_payload["active_draft"]["booking_id"] == first_booking_id
+
+    restart = client.post(
+        "/api/miniapp/bookings/new/session",
+        json={"init_data": init_data, "start_over": True},
+    )
+    assert restart.status_code == 200
+    restart_payload = restart.json()
+    assert restart_payload["booking_id"] != first_booking_id
+    assert restart_payload["has_active_draft"] is False
+
+
+def test_stage7_waitlist_join_from_new_booking(tmp_path):
+    client = _build_client(tmp_path)
+    init_data = _build_init_data(bot_token=BOT_TOKEN, user_id=420904, username="waitlist_user")
+    start_payload = client.post("/api/miniapp/bookings/new/session", json={"init_data": init_data}).json()
+    booking_id = start_payload["booking_id"]
+    save = client.put(
+        f"/api/miniapp/bookings/{booking_id}/details",
+        json={
+            "init_data": init_data,
+            "name": "Клиент",
+            "topic": "Хочу слот на конкретный день",
+            "meeting_format": "онлайн",
+            "duration_minutes": 30,
+            "email": "waitlist@example.com",
+            "is_urgent": True,
+        },
+    )
+    assert save.status_code == 200
+
+    waitlist_date = (date.today() + timedelta(days=10)).isoformat()
+    waitlist = client.post(
+        f"/api/miniapp/bookings/{booking_id}/waitlist",
+        json={
+            "init_data": init_data,
+            "waitlist_date": waitlist_date,
+            "waitlist_comment": "Нужна именно эта дата из-за дедлайна."
+        },
+    )
+    assert waitlist.status_code == 200
+    waitlist_payload = waitlist.json()
+    assert waitlist_payload["status"] == "waitlist"
+    assert waitlist_payload["waitlist_date"] == waitlist_date
+
+    active = client.get("/api/miniapp/client/bookings/active", params={"init_data": init_data})
+    assert active.status_code == 200
+    items = active.json()["items"]
+    assert any(item["booking_id"] == booking_id and item["status"] == "waitlist" for item in items)

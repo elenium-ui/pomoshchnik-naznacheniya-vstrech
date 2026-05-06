@@ -103,7 +103,10 @@ def test_stage5_admin_list_and_decisions_and_meta(tmp_path):
     user_init_data = _build_init_data(bot_token=BOT_TOKEN, user_id=123450, username="client_user")
 
     def _create_pending_booking(topic: str) -> int:
-        start = client.post("/api/miniapp/bookings/new/session", json={"init_data": user_init_data})
+        start = client.post(
+            "/api/miniapp/bookings/new/session",
+            json={"init_data": user_init_data, "start_over": True},
+        )
         booking_id_local = start.json()["booking_id"]
         save = client.put(
             f"/api/miniapp/bookings/{booking_id_local}/details",
@@ -216,3 +219,71 @@ def test_stage5_admin_list_and_decisions_and_meta(tmp_path):
     )
     assert reschedule_booking_detail.status_code == 200
     assert reschedule_booking_detail.json()["requested_new_slot_start_at"] is None
+
+
+def test_stage7_waitlist_offer_and_client_accept(tmp_path):
+    client, _ = _build_client(tmp_path)
+    admin_init_data = _build_init_data(bot_token=BOT_TOKEN, user_id=ADMIN_USER_ID, username="admin_user")
+    user_init_data = _build_init_data(bot_token=BOT_TOKEN, user_id=123451, username="waitlist_client")
+
+    start = client.post("/api/miniapp/bookings/new/session", json={"init_data": user_init_data})
+    booking_id = start.json()["booking_id"]
+    save = client.put(
+        f"/api/miniapp/bookings/{booking_id}/details",
+        json={
+            "init_data": user_init_data,
+            "name": "Клиент",
+            "topic": "Ожидание свободного слота",
+            "meeting_format": "онлайн",
+            "duration_minutes": 30,
+            "email": "waitlist@example.com",
+            "is_urgent": True,
+        },
+    )
+    assert save.status_code == 200
+
+    waitlist = client.post(
+        f"/api/miniapp/bookings/{booking_id}/waitlist",
+        json={
+            "init_data": user_init_data,
+            "waitlist_date": (datetime.utcnow() + timedelta(days=7)).date().isoformat(),
+            "waitlist_comment": "Важно попасть именно в этот день."
+        },
+    )
+    assert waitlist.status_code == 200
+    assert waitlist.json()["status"] == "waitlist"
+
+    admin_waitlist = client.get(
+        "/api/miniapp/admin/bookings",
+        params={"init_data": admin_init_data, "status_filter": "waitlist"},
+    )
+    assert admin_waitlist.status_code == 200
+    assert any(item["booking_id"] == booking_id for item in admin_waitlist.json()["items"])
+
+    slots = client.get(
+        "/api/miniapp/bookings/slots",
+        params={"init_data": admin_init_data, "duration_minutes": 30},
+    )
+    assert slots.status_code == 200
+    first_day_key = next(iter(slots.json()["time_options_by_day"].keys()))
+    slot_key = slots.json()["time_options_by_day"][first_day_key][0]["slot_key"]
+
+    offer = client.post(
+        f"/api/miniapp/admin/bookings/{booking_id}/waitlist/offer",
+        json={"init_data": admin_init_data, "slot_key": slot_key},
+    )
+    assert offer.status_code == 200
+    assert offer.json()["status"] == "waitlist_offered"
+
+    active = client.get("/api/miniapp/client/bookings/active", params={"init_data": user_init_data})
+    assert active.status_code == 200
+    offered_item = next(item for item in active.json()["items"] if item["booking_id"] == booking_id)
+    assert offered_item["status"] == "waitlist_offered"
+    assert offered_item["offered_slot_start_at"] is not None
+
+    accept = client.post(
+        f"/api/miniapp/client/bookings/{booking_id}/waitlist/accept",
+        json={"init_data": user_init_data},
+    )
+    assert accept.status_code == 200
+    assert accept.json()["status"] == "pending_decision"

@@ -16,12 +16,16 @@ class BookingRepository:
         "pending_decision",
         "confirmed",
         "reschedule_requested",
+        "waitlist",
+        "waitlist_offered",
     }
 
     FUTURE_LIMIT_STATUSES = {
         "pending_decision",
         "confirmed",
         "reschedule_requested",
+        "waitlist",
+        "waitlist_offered",
     }
 
     SLOT_OCCUPYING_STATUSES = {
@@ -41,6 +45,22 @@ class BookingRepository:
         session.add(booking)
         session.flush()
         return booking
+
+    def get_active_draft_by_user(self, session: Session, user_id: int) -> Optional[Booking]:
+        return (
+            session.query(Booking)
+            .filter(Booking.user_id == user_id, Booking.status == "draft")
+            .order_by(Booking.updated_at.desc(), Booking.id.desc())
+            .first()
+        )
+
+    def list_active_drafts_by_user(self, session: Session, user_id: int) -> list[Booking]:
+        return (
+            session.query(Booking)
+            .filter(Booking.user_id == user_id, Booking.status == "draft")
+            .order_by(Booking.updated_at.desc(), Booking.id.desc())
+            .all()
+        )
 
     def get_by_id_for_user(self, session: Session, booking_id: int, user_id: int) -> Optional[Booking]:
         return (
@@ -111,8 +131,36 @@ class BookingRepository:
     def list_admin_queue(self, session: Session, limit: int = 50) -> list[Booking]:
         return (
             session.query(Booking)
-            .filter(Booking.status.in_(["pending_decision", "reschedule_requested"]))
+            .filter(Booking.status.in_(["pending_decision", "reschedule_requested", "waitlist", "waitlist_offered"]))
             .order_by(Booking.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+    def list_waitlist(self, session: Session, limit: int = 50) -> list[Booking]:
+        return (
+            session.query(Booking)
+            .filter(Booking.status.in_(["waitlist", "waitlist_offered"]))
+            .order_by(Booking.updated_at.desc(), Booking.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+    def list_overdue_waitlist_without_offer(
+        self,
+        session: Session,
+        *,
+        today: date,
+        limit: int = 500,
+    ) -> list[Booking]:
+        return (
+            session.query(Booking)
+            .filter(
+                Booking.status == "waitlist",
+                Booking.waitlist_date.isnot(None),
+                Booking.waitlist_date < today,
+            )
+            .order_by(Booking.waitlist_date.asc(), Booking.id.asc())
             .limit(limit)
             .all()
         )
@@ -162,7 +210,7 @@ class BookingRepository:
             )
         priority = case(
             (
-                Booking.status.in_(["pending_decision", "reschedule_requested"]),
+                Booking.status.in_(["pending_decision", "reschedule_requested", "waitlist_offered", "waitlist"]),
                 0,
             ),
             else_=1,

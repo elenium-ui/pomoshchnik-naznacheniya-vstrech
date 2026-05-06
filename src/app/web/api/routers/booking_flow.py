@@ -20,13 +20,17 @@ from app.application.services.booking_validation import (
 from app.web.api.dependencies.auth import get_auth_service
 from app.web.api.dependencies.services import MiniAppCoreServices, get_core_services
 from app.web.api.schemas.booking_flow import (
+    ActiveDraftPayload,
     BookingProfilePayload,
     BookingSlotsResponse,
     InitDataPayload,
+    JoinWaitlistRequest,
+    JoinWaitlistResponse,
     SaveBookingDraftRequest,
     SaveBookingDraftResponse,
     SlotOption,
     SlotTimeOption,
+    StartBookingSessionRequest,
     StartBookingSessionResponse,
     SubmitBookingRequest,
     SubmittedBookingPayload,
@@ -36,7 +40,7 @@ from app.web.services.auth import MiniAppAuthService, TelegramInitDataError
 router = APIRouter(prefix="/api/miniapp/bookings")
 logger = logging.getLogger(__name__)
 MSK = ZoneInfo("Europe/Moscow")
-FUTURE_ACTIVE_LIMIT = 7
+FUTURE_ACTIVE_LIMIT: int | None = None
 
 
 def _slot_key(start_at: datetime) -> str:
@@ -144,7 +148,7 @@ def _resolve_user(init_data: str, auth_service: MiniAppAuthService, core: MiniAp
 
 @router.post("/new/session", response_model=StartBookingSessionResponse)
 def start_booking_session(
-    payload: InitDataPayload,
+    payload: StartBookingSessionRequest,
     auth_service: MiniAppAuthService = Depends(get_auth_service),
     core: MiniAppCoreServices = Depends(get_core_services),
 ) -> StartBookingSessionResponse:
@@ -161,28 +165,57 @@ def start_booking_session(
         user_id=user.id,
         now_msk_naive=datetime.now(MSK).replace(tzinfo=None),
     )
-    if active_count >= FUTURE_ACTIVE_LIMIT:
+    if FUTURE_ACTIVE_LIMIT is not None and active_count >= FUTURE_ACTIVE_LIMIT:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Future active booking limit reached.",
         )
 
-    booking = core.booking_service.create_draft(user_id=user.id)
+    if payload.start_over:
+        discarded = core.booking_service.discard_active_draft(
+            user_id=user.id,
+            user_telegram_user_id=session.user.telegram_user_id,
+        )
+        if discarded is not None:
+            logger.info(
+                "Mini App active draft discarded by request: booking_id=%s user_id=%s tg_user_id=%s",
+                discarded.id,
+                user.id,
+                session.user.telegram_user_id,
+            )
+
+    booking, reused_existing = core.booking_service.create_or_get_active_draft(user_id=user.id)
     logger.info(
-        "Mini App draft created: booking_id=%s user_id=%s tg_user_id=%s",
+        "Mini App draft loaded: booking_id=%s user_id=%s tg_user_id=%s reused_existing=%s",
         booking.id,
         user.id,
         session.user.telegram_user_id,
+        reused_existing,
     )
     return StartBookingSessionResponse(
         booking_id=booking.id,
         future_active_count=active_count,
-        future_active_limit=FUTURE_ACTIVE_LIMIT,
+        future_active_limit=FUTURE_ACTIVE_LIMIT or 0,
         profile=BookingProfilePayload(
             name=user.name,
             email=user.email,
             phone=user.phone,
             telegram_username=user.telegram_username,
+        ),
+        has_active_draft=reused_existing,
+        active_draft=(
+            ActiveDraftPayload(
+                booking_id=booking.id,
+                topic=booking.topic,
+                meeting_format=booking.format,
+                duration_minutes=booking.duration_minutes,
+                email=user.email,
+                phone=user.phone,
+                comment=booking.comment,
+                is_urgent=bool(booking.is_urgent),
+            )
+            if reused_existing
+            else None
         ),
     )
 
@@ -230,6 +263,7 @@ def save_booking_details(
             format=meeting_format,
             duration_minutes=duration_minutes,
             comment=comment,
+            is_urgent=bool(payload.is_urgent),
             status="draft",
         )
     except ValueError as exc:
@@ -237,10 +271,11 @@ def save_booking_details(
 
     updated_user = core.user_service.get_user_by_id(user.id)
     logger.info(
-        "Mini App booking draft updated: booking_id=%s user_id=%s duration=%s",
+        "Mini App booking draft updated: booking_id=%s user_id=%s duration=%s is_urgent=%s",
         booking.id,
         user.id,
         duration_minutes,
+        bool(payload.is_urgent),
     )
     return SaveBookingDraftResponse(
         booking_id=booking.id,
@@ -252,6 +287,92 @@ def save_booking_details(
             phone=updated_user.phone,
             telegram_username=updated_user.telegram_username,
         ),
+    )
+
+
+@router.post("/draft/discard", response_model=SaveBookingDraftResponse)
+def discard_active_draft(
+    payload: InitDataPayload,
+    auth_service: MiniAppAuthService = Depends(get_auth_service),
+    core: MiniAppCoreServices = Depends(get_core_services),
+) -> SaveBookingDraftResponse:
+    session, user = _resolve_user(payload.init_data, auth_service=auth_service, core=core)
+    discarded = core.booking_service.discard_active_draft(
+        user_id=user.id,
+        user_telegram_user_id=session.user.telegram_user_id,
+    )
+    if discarded is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Активный черновик не найден.")
+    updated_user = core.user_service.get_user_by_id(user.id)
+    logger.info(
+        "Mini App draft discarded: booking_id=%s user_id=%s tg_user_id=%s",
+        discarded.id,
+        user.id,
+        session.user.telegram_user_id,
+    )
+    return SaveBookingDraftResponse(
+        booking_id=discarded.id,
+        status=discarded.status,
+        duration_minutes=discarded.duration_minutes or 0,
+        profile=BookingProfilePayload(
+            name=updated_user.name,
+            email=updated_user.email,
+            phone=updated_user.phone,
+            telegram_username=updated_user.telegram_username,
+        ),
+    )
+
+
+@router.post("/{booking_id}/waitlist", response_model=JoinWaitlistResponse)
+def join_waitlist(
+    booking_id: int,
+    payload: JoinWaitlistRequest,
+    auth_service: MiniAppAuthService = Depends(get_auth_service),
+    core: MiniAppCoreServices = Depends(get_core_services),
+) -> JoinWaitlistResponse:
+    session, user = _resolve_user(payload.init_data, auth_service=auth_service, core=core)
+    today = datetime.now(MSK).date()
+    if payload.waitlist_date < today:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Нельзя добавить в лист ожидания прошедшую дату.",
+        )
+    max_date = today + timedelta(days=120)
+    if payload.waitlist_date > max_date:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Дата листа ожидания слишком далеко. Выберите дату ближе.",
+        )
+    waitlist_comment = parse_optional_comment(payload.waitlist_comment or "")
+    if not waitlist_comment:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Добавьте комментарий для листа ожидания: почему нужна именно эта дата.",
+        )
+
+    try:
+        booking = core.booking_service.join_waitlist(
+            booking_id=booking_id,
+            user_id=user.id,
+            user_telegram_user_id=session.user.telegram_user_id,
+            waitlist_date_value=payload.waitlist_date,
+            waitlist_comment=waitlist_comment,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    logger.info(
+        "Mini App waitlist joined: booking_id=%s user_id=%s tg_user_id=%s waitlist_date=%s",
+        booking.id,
+        user.id,
+        session.user.telegram_user_id,
+        payload.waitlist_date.isoformat(),
+    )
+    return JoinWaitlistResponse(
+        booking_id=booking.id,
+        status=booking.status,
+        waitlist_date=payload.waitlist_date,
+        message="Добавили в лист ожидания. Администратор сможет предложить слот на эту дату.",
     )
 
 
@@ -332,6 +453,7 @@ def submit_booking(
         meeting_format=submitted.format,
         duration_minutes=submitted.duration_minutes,
         comment=submitted.comment,
+        is_urgent=bool(submitted.is_urgent),
         slot_start_at=submitted.slot_start_at,
         slot_end_at=submitted.slot_end_at,
     )

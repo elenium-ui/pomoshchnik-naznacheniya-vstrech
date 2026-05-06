@@ -4,6 +4,8 @@ import "dayjs/locale/ru";
 import { useMutation } from "@tanstack/react-query";
 
 import {
+  discardActiveDraft,
+  joinBookingWaitlist,
   loadBookingSlots,
   saveBookingDraft,
   startBookingSession,
@@ -15,6 +17,8 @@ import styles from "./NewBookingFlow.module.scss";
 type Props = {
   initData: string;
   onClose: () => void;
+  startMode?: "resume" | "new";
+  onDraftSaved?: () => void;
 };
 
 type FormState = {
@@ -54,7 +58,7 @@ function formatSlotRange(startAt: string, endAt: string): string {
   return `${start.format("D MMMM")}, ${capitalize(start.format("dddd"))} ${start.format("HH:mm")} - ${end.format("HH:mm")}`;
 }
 
-export function NewBookingFlow({ initData, onClose }: Props) {
+export function NewBookingFlow({ initData, onClose, startMode = "resume", onDraftSaved }: Props) {
   const [bookingId, setBookingId] = useState<number | null>(null);
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<FormState>({
@@ -72,11 +76,18 @@ export function NewBookingFlow({ initData, onClose }: Props) {
   const [selectedDay, setSelectedDay] = useState<string>("");
   const [selectedSlot, setSelectedSlot] = useState<SlotTimeOption | null>(null);
   const [submitted, setSubmitted] = useState<SubmittedBookingPayload | null>(null);
+  const [waitlistDate, setWaitlistDate] = useState<string>(dayjs().format("YYYY-MM-DD"));
+  const [waitlistComment, setWaitlistComment] = useState("");
+  const [hasActiveDraft, setHasActiveDraft] = useState(false);
+  const [submissionTarget, setSubmissionTarget] = useState<"slot" | "waitlist">("slot");
+  const [waitlistPanelOpen, setWaitlistPanelOpen] = useState(false);
 
   const startMutation = useMutation({
-    mutationFn: () => startBookingSession(initData),
+    mutationFn: ({ startOver }: { startOver: boolean }) =>
+      startBookingSession(initData, { start_over: startOver }),
     onSuccess: (payload) => {
       setBookingId(payload.booking_id);
+      setHasActiveDraft(payload.has_active_draft);
       setForm((prev) => ({
         ...prev,
         name: payload.profile.name ?? "",
@@ -84,6 +95,49 @@ export function NewBookingFlow({ initData, onClose }: Props) {
         phone: payload.profile.phone ?? ""
       }));
       setUsernameExists(Boolean(payload.profile.telegram_username));
+      if (payload.has_active_draft && payload.active_draft) {
+        setForm((prev) => ({
+          ...prev,
+          topic: payload.active_draft?.topic ?? "",
+          meetingFormat: payload.active_draft?.meeting_format === "офлайн" ? "офлайн" : "онлайн",
+          durationMinutes: (payload.active_draft?.duration_minutes as 15 | 30 | 45 | 60 | 90 | null) ?? prev.durationMinutes,
+          email: payload.active_draft?.email ?? prev.email,
+          phone: payload.active_draft?.phone ?? prev.phone,
+          comment: payload.active_draft?.comment ?? ""
+        }));
+      }
+    }
+  });
+
+  const startOverMutation = useMutation({
+    mutationFn: () => startBookingSession(initData, { start_over: true }),
+    onSuccess: (payload) => {
+      setBookingId(payload.booking_id);
+      setHasActiveDraft(false);
+      setStep(1);
+      setSlotsData(null);
+      setSelectedWeek("");
+      setSelectedDay("");
+      setSelectedSlot(null);
+      setSubmitted(null);
+      setSubmissionTarget("slot");
+      setForm({
+        name: payload.profile.name ?? "",
+        topic: "",
+        meetingFormat: "онлайн",
+        durationMinutes: 30,
+        email: payload.profile.email ?? "",
+        phone: payload.profile.phone ?? "",
+        comment: ""
+      });
+    }
+  });
+
+  const discardDraftMutation = useMutation({
+    mutationFn: () => discardActiveDraft(initData),
+    onSuccess: () => {
+      setHasActiveDraft(false);
+      startOverMutation.mutate();
     }
   });
 
@@ -109,6 +163,7 @@ export function NewBookingFlow({ initData, onClose }: Props) {
     mutationFn: () => loadBookingSlots(initData, form.durationMinutes),
     onSuccess: (payload) => {
       setSlotsData(payload);
+      setSubmissionTarget("slot");
       const firstWeek = payload.week_options[0]?.key ?? "";
       setSelectedWeek(firstWeek);
       const firstDay = payload.day_options_by_week[firstWeek]?.[0]?.key ?? "";
@@ -131,8 +186,22 @@ export function NewBookingFlow({ initData, onClose }: Props) {
     }
   });
 
+  const joinWaitlistMutation = useMutation({
+    mutationFn: async () => {
+      if (!bookingId) {
+        throw new Error("Draft is not initialized.");
+      }
+      const effectiveWaitlistComment = waitlistComment.trim() || form.comment.trim();
+      return joinBookingWaitlist(bookingId, initData, waitlistDate, effectiveWaitlistComment);
+    },
+    onSuccess: () => {
+      setSubmitted(null);
+      setStep(9);
+    }
+  });
+
   useEffect(() => {
-    startMutation.mutate();
+    startMutation.mutate({ startOver: startMode === "new" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -163,6 +232,7 @@ export function NewBookingFlow({ initData, onClose }: Props) {
     [selectedWeek, slotsData]
   );
   const weekOptions = slotsData?.week_options ?? [];
+  const hasAvailableSlots = Boolean(slotsData && slotsData.total_slots > 0);
   const selectedWeekIndex = Math.max(
     0,
     weekOptions.findIndex((option) => option.key === selectedWeek)
@@ -170,7 +240,21 @@ export function NewBookingFlow({ initData, onClose }: Props) {
   const bookingTitle =
     form.topic.trim().length >= 3 ? `Тема встречи: ${form.topic.trim()}` : "Новая заявка";
 
+  useEffect(() => {
+    if (step !== 7) {
+      return;
+    }
+    if (!hasAvailableSlots) {
+      setWaitlistPanelOpen(true);
+    }
+  }, [step, hasAvailableSlots]);
+
   const phoneRequired = !usernameExists && form.email.trim().length === 0;
+  const canSaveDraft =
+    Boolean(bookingId) &&
+    form.name.trim().length >= 2 &&
+    form.topic.trim().length >= 3 &&
+    form.durationMinutes > 0;
   const canGoNext =
     (step === 1 && form.name.trim().length >= 2) ||
     (step === 2 && form.topic.trim().length >= 3) ||
@@ -191,11 +275,28 @@ export function NewBookingFlow({ initData, onClose }: Props) {
       setStep(7);
       return;
     }
+    if (step === 7) {
+      setSubmissionTarget("slot");
+    }
     if (step === 8) {
+      if (submissionTarget === "waitlist") {
+        await joinWaitlistMutation.mutateAsync();
+        return;
+      }
       await submitMutation.mutateAsync();
       return;
     }
     setStep((prev) => Math.min(prev + 1, 8));
+  }
+
+  async function saveDraftAndExit() {
+    try {
+      await saveDraftMutation.mutateAsync();
+      onDraftSaved?.();
+      onClose();
+    } catch {
+      // Error is displayed by mutation state below.
+    }
   }
 
   function goBack() {
@@ -213,6 +314,14 @@ export function NewBookingFlow({ initData, onClose }: Props) {
     setSelectedWeek(weekOptions[candidateIndex].key);
   }
 
+  function goToWaitlistConfirmation() {
+    if (!waitlistComment.trim() && form.comment.trim()) {
+      setWaitlistComment(form.comment.trim());
+    }
+    setSubmissionTarget("waitlist");
+    setStep(8);
+  }
+
   if (startMutation.isPending) {
     return <div className={styles.overlay}>Подготавливаем форму новой заявки...</div>;
   }
@@ -222,7 +331,7 @@ export function NewBookingFlow({ initData, onClose }: Props) {
         <div className={styles.errorBox}>
           <p>{startMutation.error.message}</p>
           <div className={styles.errorActions}>
-            <button type="button" onClick={() => startMutation.mutate()}>
+            <button type="button" onClick={() => startMutation.mutate({ startOver: startMode === "new" })}>
               Попробовать снова
             </button>
             <button type="button" onClick={onClose}>
@@ -260,14 +369,16 @@ export function NewBookingFlow({ initData, onClose }: Props) {
           ) : null}
 
           {step === 2 ? (
-            <label className={styles.field}>
-              <span>Тема встречи</span>
-              <input
-                value={form.topic}
-                onChange={(event) => setForm((prev) => ({ ...prev, topic: event.target.value }))}
-                placeholder="Например: управленческий учёт"
-              />
-            </label>
+            <div className={styles.segment}>
+              <label className={styles.field}>
+                <span>Тема встречи</span>
+                <input
+                  value={form.topic}
+                  onChange={(event) => setForm((prev) => ({ ...prev, topic: event.target.value }))}
+                  placeholder="Например: управленческий учёт"
+                />
+              </label>
+            </div>
           ) : null}
 
           {step === 3 ? (
@@ -349,56 +460,115 @@ export function NewBookingFlow({ initData, onClose }: Props) {
 
           {step === 7 ? (
             <div className={`${styles.segment} ${styles.scheduleSegment}`}>
-              <p className={`${styles.segmentTitle} ${styles.scheduleTitle}`}>Неделя</p>
-              <div className={styles.weekSwitcher}>
+              {slotsMutation.isPending ? <p className={styles.summaryLine}>Подбираем свободные слоты...</p> : null}
+              {hasAvailableSlots ? (
+                <>
+                  <p className={`${styles.segmentTitle} ${styles.scheduleTitle}`}>Неделя</p>
+                  <div className={styles.weekSwitcher}>
+                    <button
+                      type="button"
+                      className={styles.weekArrow}
+                      onClick={() => switchWeek(-1)}
+                      disabled={selectedWeekIndex <= 0}
+                    >
+                      ←
+                    </button>
+                    <div className={styles.weekLabel}>
+                      {weekOptions[selectedWeekIndex] ? formatWeekLabel(weekOptions[selectedWeekIndex].key) : "Неделя"}
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.weekArrow}
+                      onClick={() => switchWeek(1)}
+                      disabled={selectedWeekIndex >= weekOptions.length - 1}
+                    >
+                      →
+                    </button>
+                  </div>
+
+                  <p className={`${styles.segmentTitle} ${styles.scheduleTitle}`}>День</p>
+                  <div className={styles.dayGrid}>
+                    {selectedWeekDays.map((option) => (
+                      <button
+                        key={option.key}
+                        type="button"
+                        className={`${selectedDay === option.key ? styles.active : styles.passive} ${styles.centeredChip}`}
+                        onClick={() => {
+                          setSelectedDay(option.key);
+                          setSubmissionTarget("slot");
+                        }}
+                      >
+                        {formatDayLabel(option.key)}
+                      </button>
+                    ))}
+                  </div>
+
+                  <p className={`${styles.segmentTitle} ${styles.scheduleTitle}`}>Свободное время</p>
+                  <div className={styles.timeGrid}>
+                    {currentSlots.map((slot) => (
+                      <button
+                        key={slot.slot_key}
+                        type="button"
+                        className={`${selectedSlot?.slot_key === slot.slot_key ? styles.active : styles.passive} ${styles.centeredChip}`}
+                        onClick={() => {
+                          setSelectedSlot(slot);
+                          setSubmissionTarget("slot");
+                        }}
+                      >
+                        {slot.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className={styles.summaryLine}>
+                  На выбранный период сейчас нет свободных слотов.
+                </p>
+              )}
+
+              <div className={styles.waitlistToggleWrap}>
                 <button
                   type="button"
-                  className={styles.weekArrow}
-                  onClick={() => switchWeek(-1)}
-                  disabled={selectedWeekIndex <= 0}
+                  className={styles.waitlistToggleButton}
+                  onClick={() => setWaitlistPanelOpen((prev) => !prev)}
                 >
-                  ←
+                  {waitlistPanelOpen ? "Скрыть лист ожидания" : "Не нашли подходящее время?"}
                 </button>
-                <div className={styles.weekLabel}>
-                  {weekOptions[selectedWeekIndex] ? formatWeekLabel(weekOptions[selectedWeekIndex].key) : "Неделя"}
+              </div>
+
+              {waitlistPanelOpen ? (
+                <div className={styles.segment}>
+                  <p className={styles.summaryLine}>
+                    Вы можете оставить заявку на лист ожидания, если не нашли нужного времени.
+                    Эта опция не гарантирует слот на выбранную дату.
+                  </p>
+                  <label className={styles.field}>
+                    <span>Лист ожидания</span>
+                    <input
+                      type="date"
+                      value={waitlistDate}
+                      onChange={(event) => setWaitlistDate(event.target.value)}
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>Выберите желаемую дату и комментарий для администратора, почему важна именно эта дата или предпочтительное время, которого нет в свободных слотах.</span>
+                    <textarea
+                      className={styles.compactTextarea}
+                      value={waitlistComment}
+                      onChange={(event) => setWaitlistComment(event.target.value)}
+                      placeholder="Например: важна встреча в этот день после 16:00, другие слоты не подходят."
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className={styles.ghostButton}
+                    onClick={goToWaitlistConfirmation}
+                    disabled={joinWaitlistMutation.isPending || submitMutation.isPending}
+                  >
+                    Оставить заявку на лист ожидания
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  className={styles.weekArrow}
-                  onClick={() => switchWeek(1)}
-                  disabled={selectedWeekIndex >= weekOptions.length - 1}
-                >
-                  →
-                </button>
-              </div>
-
-              <p className={`${styles.segmentTitle} ${styles.scheduleTitle}`}>День</p>
-              <div className={styles.dayGrid}>
-                {selectedWeekDays.map((option) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    className={`${selectedDay === option.key ? styles.active : styles.passive} ${styles.centeredChip}`}
-                    onClick={() => setSelectedDay(option.key)}
-                  >
-                    {formatDayLabel(option.key)}
-                  </button>
-                ))}
-              </div>
-
-              <p className={`${styles.segmentTitle} ${styles.scheduleTitle}`}>Свободное время</p>
-              <div className={styles.timeGrid}>
-                {currentSlots.map((slot) => (
-                  <button
-                    key={slot.slot_key}
-                    type="button"
-                    className={`${selectedSlot?.slot_key === slot.slot_key ? styles.active : styles.passive} ${styles.centeredChip}`}
-                    onClick={() => setSelectedSlot(slot)}
-                  >
-                    {slot.label}
-                  </button>
-                ))}
-              </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -408,23 +578,49 @@ export function NewBookingFlow({ initData, onClose }: Props) {
               <p className={styles.summaryLine}>Тема: {form.topic}</p>
               <p className={styles.summaryLine}>Формат: {form.meetingFormat}</p>
               <p className={styles.summaryLine}>Длительность: {form.durationMinutes} мин</p>
-              <p className={styles.summaryLine}>
-                Слот:{" "}
-                {selectedSlot
-                  ? formatSlotRange(selectedSlot.starts_at, selectedSlot.ends_at)
-                  : "не выбран"}
-              </p>
+              <p className={styles.summaryLine}>Комментарий к заявке: {form.comment.trim() || "не указан"}</p>
+              {submissionTarget === "waitlist" ? (
+                <>
+                  <p className={styles.summaryLine}>
+                    Лист ожидания на дату: {dayjs(waitlistDate).format("D MMMM YYYY")}
+                  </p>
+                  <p className={styles.summaryLine}>
+                    Важно: это не гарантирует подтверждение слота, заявка будет рассмотрена администратором.
+                  </p>
+                  <p className={styles.summaryLine}>
+                    Комментарий для листа ожидания: {waitlistComment.trim() || "не указан"}
+                  </p>
+                </>
+              ) : (
+                <p className={styles.summaryLine}>
+                  Слот:{" "}
+                  {selectedSlot
+                    ? formatSlotRange(selectedSlot.starts_at, selectedSlot.ends_at)
+                    : "не выбран"}
+                </p>
+              )}
             </div>
           ) : null}
 
-          {step === 9 && submitted ? (
+          {step === 9 ? (
             <div className={`${styles.segment} ${styles.successCard}`}>
-              <h3>Заявка отправлена</h3>
-              <p className={styles.successText}>Заявка отправлена на согласование. Подтверждение придёт отдельно.</p>
-              {submitted.topic ? <p className={styles.summaryLine}>Тема: {submitted.topic}</p> : null}
-              <p className={styles.summaryLine}>
-                Время встречи: {formatSlotRange(submitted.slot_start_at, submitted.slot_end_at)}
-              </p>
+              <h3>{submitted ? "Заявка отправлена" : "Заявка в листе ожидания"}</h3>
+              {submitted ? (
+                <>
+                  <p className={styles.successText}>Заявка отправлена на согласование. Подтверждение придёт отдельно.</p>
+                  {submitted.topic ? <p className={styles.summaryLine}>Тема: {submitted.topic}</p> : null}
+                  <p className={styles.summaryLine}>
+                    Время встречи: {formatSlotRange(submitted.slot_start_at, submitted.slot_end_at)}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className={styles.successText}>Заявка в лист ожидания отправлена. Сообщим, когда появится слот.</p>
+                  <p className={styles.summaryLine}>Дата ожидания: {dayjs(waitlistDate).format("D MMMM YYYY")}</p>
+                  <p className={styles.summaryLine}>Тема: {form.topic}</p>
+                  <p className={styles.summaryLine}>Комментарий для листа ожидания: {waitlistComment.trim() || "не указан"}</p>
+                </>
+              )}
             </div>
           ) : null}
         </div>
@@ -438,16 +634,32 @@ export function NewBookingFlow({ initData, onClose }: Props) {
           {step <= 8 ? (
             <button
               type="button"
+              onClick={() => void saveDraftAndExit()}
+              className={styles.ghostButton}
+              disabled={!canSaveDraft || saveDraftMutation.isPending}
+            >
+              Сохранить черновик
+            </button>
+          ) : null}
+          {step <= 8 ? (
+            <button
+              type="button"
               onClick={() => void goNext()}
               className={styles.mainButton}
               disabled={
                 !canGoNext ||
+                (step === 7 && !hasAvailableSlots) ||
                 saveDraftMutation.isPending ||
                 slotsMutation.isPending ||
-                submitMutation.isPending
+                submitMutation.isPending ||
+                joinWaitlistMutation.isPending
               }
             >
-              {step === 8 ? "Подтвердить и отправить" : "Далее"}
+              {step === 8
+                ? submissionTarget === "waitlist"
+                  ? "Подтвердить и отправить в лист ожидания"
+                  : "Подтвердить и отправить"
+                : "Далее"}
             </button>
           ) : (
             <button type="button" onClick={onClose} className={styles.mainButton}>
@@ -456,9 +668,21 @@ export function NewBookingFlow({ initData, onClose }: Props) {
           )}
         </footer>
 
+        {hasActiveDraft && step <= 8 ? (
+          <div className={styles.errorActions}>
+            <button type="button" onClick={() => startOverMutation.mutate()} disabled={startOverMutation.isPending}>
+              Начать заново
+            </button>
+            <button type="button" onClick={() => discardDraftMutation.mutate()} disabled={discardDraftMutation.isPending}>
+              Удалить черновик
+            </button>
+          </div>
+        ) : null}
+
         {saveDraftMutation.isError ? <p className={styles.errorText}>{saveDraftMutation.error.message}</p> : null}
         {slotsMutation.isError ? <p className={styles.errorText}>{slotsMutation.error.message}</p> : null}
         {submitMutation.isError ? <p className={styles.errorText}>{submitMutation.error.message}</p> : null}
+        {joinWaitlistMutation.isError ? <p className={styles.errorText}>{joinWaitlistMutation.error.message}</p> : null}
       </section>
     </div>
   );

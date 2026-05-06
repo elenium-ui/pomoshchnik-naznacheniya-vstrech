@@ -60,6 +60,24 @@ def _apply_sqlite_schema_compat_migrations(engine: Engine, database_url: str) ->
             if "meeting_link" not in existing_columns:
                 connection.execute(text("ALTER TABLE bookings ADD COLUMN meeting_link TEXT"))
                 logger.info("SQLite schema upgraded: added bookings.meeting_link")
+            if "is_urgent" not in existing_columns:
+                connection.execute(text("ALTER TABLE bookings ADD COLUMN is_urgent BOOLEAN DEFAULT 0"))
+                logger.info("SQLite schema upgraded: added bookings.is_urgent")
+            if "waitlist_date" not in existing_columns:
+                connection.execute(text("ALTER TABLE bookings ADD COLUMN waitlist_date DATE"))
+                logger.info("SQLite schema upgraded: added bookings.waitlist_date")
+
+            users_exists = connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+            ).first()
+            if users_exists is not None:
+                users_columns = {
+                    row[1]
+                    for row in connection.execute(text("PRAGMA table_info('users')")).fetchall()
+                }
+                if "reminder_enabled" not in users_columns:
+                    connection.execute(text("ALTER TABLE users ADD COLUMN reminder_enabled BOOLEAN DEFAULT 0"))
+                    logger.info("SQLite schema upgraded: added users.reminder_enabled")
     except Exception:
         logger.exception("SQLite schema compatibility migration failed.")
         raise

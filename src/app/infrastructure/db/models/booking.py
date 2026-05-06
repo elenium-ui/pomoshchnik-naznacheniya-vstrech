@@ -1,7 +1,8 @@
+from datetime import date as dt_date
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.db.base import Base
@@ -29,6 +30,8 @@ class Booking(Base):
     admin_public_comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     meeting_link: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     status: Mapped[str] = mapped_column(String(64), default="draft")
+    is_urgent: Mapped[bool] = mapped_column(Boolean, default=False)
+    waitlist_date: Mapped[Optional[dt_date]] = mapped_column(Date, nullable=True)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     calendar_event_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

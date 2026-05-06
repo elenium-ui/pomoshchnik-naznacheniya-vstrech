@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -10,11 +10,28 @@ class InitDataPayload(BaseModel):
     init_data: str = Field(min_length=1)
 
 
+class StartBookingSessionRequest(InitDataPayload):
+    start_over: bool = False
+
+
+class ActiveDraftPayload(BaseModel):
+    booking_id: int
+    topic: Optional[str] = None
+    meeting_format: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    comment: Optional[str] = None
+    is_urgent: bool = False
+
+
 class StartBookingSessionResponse(BaseModel):
     booking_id: int
     future_active_count: int
     future_active_limit: int
     profile: "BookingProfilePayload"
+    has_active_draft: bool = False
+    active_draft: Optional[ActiveDraftPayload] = None
 
 
 class BookingProfilePayload(BaseModel):
@@ -33,6 +50,7 @@ class SaveBookingDraftRequest(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     comment: Optional[str] = None
+    is_urgent: bool = False
 
 
 class SaveBookingDraftResponse(BaseModel):
@@ -67,6 +85,19 @@ class SubmitBookingRequest(BaseModel):
     slot_key: str = Field(min_length=1)
 
 
+class JoinWaitlistRequest(BaseModel):
+    init_data: str = Field(min_length=1)
+    waitlist_date: date
+    waitlist_comment: Optional[str] = None
+
+
+class JoinWaitlistResponse(BaseModel):
+    booking_id: int
+    status: str
+    waitlist_date: date
+    message: str
+
+
 class SubmittedBookingPayload(BaseModel):
     booking_id: int
     status: str
@@ -74,6 +105,6 @@ class SubmittedBookingPayload(BaseModel):
     meeting_format: Optional[str] = None
     duration_minutes: Optional[int] = None
     comment: Optional[str] = None
+    is_urgent: bool = False
     slot_start_at: datetime
     slot_end_at: datetime
-

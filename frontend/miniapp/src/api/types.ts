@@ -27,6 +27,17 @@ export type StartBookingSessionResponse = {
   future_active_count: number;
   future_active_limit: number;
   profile: BookingProfile;
+  has_active_draft: boolean;
+  active_draft: {
+    booking_id: number;
+    topic: string | null;
+    meeting_format: string | null;
+    duration_minutes: number | null;
+    email: string | null;
+    phone: string | null;
+    comment: string | null;
+    is_urgent: boolean;
+  } | null;
 };
 
 export type SaveBookingDraftRequest = {
@@ -38,6 +49,7 @@ export type SaveBookingDraftRequest = {
   email?: string | null;
   phone?: string | null;
   comment?: string | null;
+  is_urgent?: boolean;
 };
 
 export type SaveBookingDraftResponse = {
@@ -45,6 +57,13 @@ export type SaveBookingDraftResponse = {
   status: string;
   duration_minutes: number;
   profile: BookingProfile;
+};
+
+export type JoinWaitlistResponse = {
+  booking_id: number;
+  status: string;
+  waitlist_date: string;
+  message: string;
 };
 
 export type SlotOption = {
@@ -74,6 +93,7 @@ export type SubmittedBookingPayload = {
   meeting_format: string | null;
   duration_minutes: number | null;
   comment: string | null;
+  is_urgent: boolean;
   slot_start_at: string;
   slot_end_at: string;
 };
@@ -84,12 +104,17 @@ export type ClientBookingItem = {
   topic: string | null;
   meeting_format: string | null;
   duration_minutes: number | null;
+  waitlist_date: string | null;
   slot_start_at: string | null;
   slot_end_at: string | null;
+  offered_slot_start_at: string | null;
+  offered_slot_end_at: string | null;
   comment: string | null;
   admin_public_comment: string | null;
   meeting_link: string | null;
   calendar_event_id: string | null;
+  google_calendar_url: string | null;
+  is_urgent: boolean;
   updated_at: string;
 };
 
@@ -139,8 +164,10 @@ export type AdminBookingItem = {
   booking_id: number;
   status: string;
   topic: string | null;
+  is_urgent: boolean;
   meeting_format: string | null;
   duration_minutes: number | null;
+  waitlist_date: string | null;
   slot_start_at: string | null;
   slot_end_at: string | null;
   requested_new_slot_start_at: string | null;

@@ -125,10 +125,12 @@ def test_stage4_active_history_and_profile_routes(tmp_path):
     history_response = client.get("/api/miniapp/client/bookings/history", params={"init_data": init_data})
     assert history_response.status_code == 200
     assert history_response.json()["items"]
+    assert history_response.json()["items"][0]["google_calendar_url"] is not None
 
     profile_get = client.get("/api/miniapp/client/profile", params={"init_data": init_data})
     assert profile_get.status_code == 200
     assert profile_get.json()["profile"]["email"] == "client@example.com"
+    assert profile_get.json()["profile"]["reminder_supported"] is True
 
     profile_update = client.put(
         "/api/miniapp/client/profile",
@@ -137,10 +139,12 @@ def test_stage4_active_history_and_profile_routes(tmp_path):
             "name": "Новое Имя",
             "email": "new@example.com",
             "phone": "+79990003344",
+            "reminder_enabled": True,
         },
     )
     assert profile_update.status_code == 200
     assert profile_update.json()["profile"]["name"] == "Новое Имя"
+    assert profile_update.json()["profile"]["reminder_enabled"] is True
 
 
 def test_stage4_cancel_and_reschedule_start(tmp_path):
@@ -196,3 +200,54 @@ def test_stage4_cancel_and_reschedule_start(tmp_path):
     )
     assert cancel_response.status_code == 200
     assert cancel_response.json()["status"] == "canceled_by_user"
+
+
+def test_stage7_client_can_reject_waitlist_offer(tmp_path):
+    client, _ = _build_client(tmp_path)
+    admin_init_data = _build_init_data(bot_token=BOT_TOKEN, user_id=ADMIN_USER_ID, username="admin_user")
+    init_data = _build_init_data(bot_token=BOT_TOKEN, user_id=520902, username="waitlist_reject_user")
+    booking_id = _create_booking_for_user(client, init_data)
+
+    save_response = client.put(
+        f"/api/miniapp/bookings/{booking_id}/details",
+        json={
+            "init_data": init_data,
+            "name": "Клиент",
+            "topic": "Ожидание нового времени",
+            "meeting_format": "онлайн",
+            "duration_minutes": 30,
+            "email": "client@example.com",
+        },
+    )
+    assert save_response.status_code == 200
+
+    waitlist_response = client.post(
+        f"/api/miniapp/bookings/{booking_id}/waitlist",
+        json={
+            "init_data": init_data,
+            "waitlist_date": (datetime.utcnow() + timedelta(days=6)).date().isoformat(),
+            "waitlist_comment": "Подойдет только эта дата, нужен срочный созвон."
+        },
+    )
+    assert waitlist_response.status_code == 200
+
+    slots_response = client.get(
+        "/api/miniapp/bookings/slots",
+        params={"init_data": admin_init_data, "duration_minutes": 30},
+    )
+    assert slots_response.status_code == 200
+    first_day_key = next(iter(slots_response.json()["time_options_by_day"].keys()))
+    slot_key = slots_response.json()["time_options_by_day"][first_day_key][0]["slot_key"]
+    offer_response = client.post(
+        f"/api/miniapp/admin/bookings/{booking_id}/waitlist/offer",
+        json={"init_data": admin_init_data, "slot_key": slot_key},
+    )
+    assert offer_response.status_code == 200
+    assert offer_response.json()["status"] == "waitlist_offered"
+
+    reject_response = client.post(
+        f"/api/miniapp/client/bookings/{booking_id}/waitlist/reject",
+        json={"init_data": init_data},
+    )
+    assert reject_response.status_code == 200
+    assert reject_response.json()["status"] == "waitlist"

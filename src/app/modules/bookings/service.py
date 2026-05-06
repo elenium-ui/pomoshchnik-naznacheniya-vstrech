@@ -66,6 +66,56 @@ class BookingService:
             logger.info("Draft booking created: booking_id=%s user_id=%s", booking.id, user_id)
             return booking
 
+    def create_or_get_active_draft(self, user_id: int) -> tuple[Booking, bool]:
+        with self._session_scope() as session:
+            drafts = self._repository.list_active_drafts_by_user(session=session, user_id=user_id)
+            if drafts:
+                existing = drafts[0]
+                # Keep only the latest active draft; archive stale duplicates.
+                for stale in drafts[1:]:
+                    self._transition_status(
+                        session=session,
+                        booking=stale,
+                        new_status="canceled_by_user",
+                        changed_by=f"user:{user_id}",
+                    )
+                if len(drafts) > 1:
+                    logger.info(
+                        "Duplicate drafts normalized: user_id=%s kept_booking_id=%s archived_count=%s",
+                        user_id,
+                        existing.id,
+                        len(drafts) - 1,
+                    )
+                logger.info("Active draft reused: booking_id=%s user_id=%s", existing.id, user_id)
+                return existing, True
+            booking = self._repository.create_draft(session=session, user_id=user_id)
+            logger.info("Active draft created: booking_id=%s user_id=%s", booking.id, user_id)
+            return booking, False
+
+    def discard_active_draft(self, user_id: int, user_telegram_user_id: int) -> Booking | None:
+        with self._session_scope() as session:
+            existing = self._repository.get_active_draft_by_user(session=session, user_id=user_id)
+            if existing is None:
+                return None
+            self._repository.update_fields(
+                existing,
+                slot_start_at=None,
+                slot_end_at=None,
+                requested_new_slot_start_at=None,
+                requested_new_slot_end_at=None,
+                waitlist_date=None,
+                expires_at=None,
+            )
+            self._transition_status(
+                session=session,
+                booking=existing,
+                new_status="canceled_by_user",
+                changed_by=f"user:{user_telegram_user_id}",
+            )
+            session.flush()
+            logger.info("Active draft discarded: booking_id=%s user_id=%s", existing.id, user_id)
+            return existing
+
     def update_booking_fields(self, booking_id: int, user_id: int, **fields) -> Booking:
         with self._session_scope() as session:
             booking = self._repository.get_by_id_for_user(session, booking_id=booking_id, user_id=user_id)
@@ -78,6 +128,7 @@ class BookingService:
 
     def list_active_bookings(self, user_id: int, now_msk_naive: datetime | None = None) -> list[Booking]:
         effective_now = now_msk_naive or datetime.now(MSK).replace(tzinfo=None)
+        self.expire_overdue_waitlist_without_offer(today=effective_now.date())
         with self._session_scope() as session:
             bookings = self._repository.list_active_by_user(
                 session=session,
@@ -88,6 +139,7 @@ class BookingService:
             return bookings
 
     def list_history_bookings(self, user_id: int, now_msk_naive: datetime) -> list[Booking]:
+        self.expire_overdue_waitlist_without_offer(today=now_msk_naive.date())
         with self._session_scope() as session:
             bookings = self._repository.list_history_completed_by_user(
                 session=session,
@@ -109,6 +161,12 @@ class BookingService:
             logger.info("Admin confirmed bookings listed: count=%s", len(bookings))
             return bookings
 
+    def list_waitlist_bookings(self, limit: int = 50) -> list[Booking]:
+        with self._session_scope() as session:
+            bookings = self._repository.list_waitlist(session=session, limit=limit)
+            logger.info("Admin waitlist bookings listed: count=%s", len(bookings))
+            return bookings
+
     def search_bookings_for_admin(
         self,
         *,
@@ -117,6 +175,7 @@ class BookingService:
         search: str | None = None,
         limit: int = 50,
     ) -> list[tuple[Booking, User]]:
+        self.expire_overdue_waitlist_without_offer(today=datetime.now(MSK).date())
         with self._session_scope() as session:
             rows = self._repository.search_for_admin(
                 session=session,
@@ -135,6 +194,7 @@ class BookingService:
             return rows
 
     def get_booking_for_admin(self, booking_id: int) -> tuple[Booking, User]:
+        self.expire_overdue_waitlist_without_offer(today=datetime.now(MSK).date())
         with self._session_scope() as session:
             row = self._repository.get_by_id_with_user(session=session, booking_id=booking_id)
             if row is None:
@@ -170,6 +230,7 @@ class BookingService:
             return booking, user
 
     def get_booking_for_user(self, booking_id: int, user_id: int) -> Booking:
+        self.expire_overdue_waitlist_without_offer(today=datetime.now(MSK).date())
         with self._session_scope() as session:
             booking = self._repository.get_by_id_for_user(session, booking_id=booking_id, user_id=user_id)
             if booking is None:
@@ -177,6 +238,7 @@ class BookingService:
             return booking
 
     def count_future_active_for_limit(self, user_id: int, now_msk_naive: datetime) -> int:
+        self.expire_overdue_waitlist_without_offer(today=now_msk_naive.date())
         with self._session_scope() as session:
             count = self._repository.count_future_active_for_limit(
                 session=session,
@@ -211,6 +273,9 @@ class BookingService:
                 booking,
                 slot_start_at=slot_start_at_msk_naive,
                 slot_end_at=slot_end_at_msk_naive,
+                requested_new_slot_start_at=None,
+                requested_new_slot_end_at=None,
+                waitlist_date=None,
                 expires_at=expires_at_msk_naive,
             )
             self._transition_status(
@@ -222,12 +287,258 @@ class BookingService:
             session.flush()
 
             logger.info(
-                "Booking submitted with slot hold: booking_id=%s user_id=%s slot_start=%s slot_end=%s expires_at=%s",
+                "Booking submitted with slot hold: booking_id=%s user_id=%s slot_start=%s slot_end=%s expires_at=%s is_urgent=%s",
                 booking.id,
                 user_id,
                 slot_start_at_msk_naive,
                 slot_end_at_msk_naive,
                 expires_at_msk_naive,
+                bool(booking.is_urgent),
+            )
+            return booking
+
+    def join_waitlist(
+        self,
+        booking_id: int,
+        user_id: int,
+        user_telegram_user_id: int,
+        waitlist_date_value: date,
+        waitlist_comment: str | None = None,
+    ) -> Booking:
+        with self._session_scope() as session:
+            booking = self._repository.get_by_id_for_user(session, booking_id=booking_id, user_id=user_id)
+            if booking is None:
+                raise ValueError("Заявка не найдена.")
+            if booking.status not in {"draft", "waitlist"}:
+                raise ValueError("В лист ожидания можно добавить только новую заявку.")
+
+            self._repository.update_fields(
+                booking,
+                slot_start_at=None,
+                slot_end_at=None,
+                requested_new_slot_start_at=None,
+                requested_new_slot_end_at=None,
+                waitlist_date=waitlist_date_value,
+                comment=waitlist_comment,
+                expires_at=None,
+            )
+            self._transition_status(
+                session=session,
+                booking=booking,
+                new_status="waitlist",
+                changed_by=f"user:{user_telegram_user_id}",
+            )
+            session.flush()
+            logger.info(
+                "Waitlist joined: booking_id=%s user_id=%s waitlist_date=%s is_urgent=%s",
+                booking.id,
+                user_id,
+                waitlist_date_value.isoformat(),
+                bool(booking.is_urgent),
+            )
+            return booking
+
+    def reject_waitlist_by_admin(
+        self,
+        *,
+        booking_id: int,
+        admin_telegram_user_id: int,
+        admin_public_comment: str | None,
+    ) -> BookingDecisionResult:
+        with self._session_scope() as session:
+            booking = self._repository.get_by_id(session=session, booking_id=booking_id)
+            if booking is None:
+                raise ValueError("Заявка не найдена.")
+            if booking.status not in {"waitlist", "waitlist_offered"}:
+                raise ValueError("Отказать можно только заявке из листа ожидания.")
+
+            user = self._user_repository.get_by_id(session=session, user_id=booking.user_id)
+            if user is None:
+                raise ValueError("Пользователь заявки не найден.")
+
+            self._repository.update_fields(
+                booking,
+                requested_new_slot_start_at=None,
+                requested_new_slot_end_at=None,
+                waitlist_date=None,
+                admin_public_comment=admin_public_comment,
+                expires_at=None,
+            )
+            self._transition_status(
+                session=session,
+                booking=booking,
+                new_status="rejected",
+                changed_by=f"admin:{admin_telegram_user_id}",
+            )
+            session.flush()
+            logger.info(
+                "Waitlist booking rejected by admin: booking_id=%s admin_tg_id=%s",
+                booking.id,
+                admin_telegram_user_id,
+            )
+            return BookingDecisionResult(booking=booking, user=user)
+
+    def expire_overdue_waitlist_without_offer(self, today: date) -> int:
+        with self._session_scope() as session:
+            overdue = self._repository.list_overdue_waitlist_without_offer(
+                session=session,
+                today=today,
+            )
+            if not overdue:
+                return 0
+            for booking in overdue:
+                self._repository.update_fields(
+                    booking,
+                    waitlist_date=None,
+                    requested_new_slot_start_at=None,
+                    requested_new_slot_end_at=None,
+                    expires_at=None,
+                )
+                self._transition_status(
+                    session=session,
+                    booking=booking,
+                    new_status="expired",
+                    changed_by="system:waitlist_expired",
+                )
+            session.flush()
+            logger.info(
+                "Waitlist bookings auto-archived as expired: count=%s date=%s",
+                len(overdue),
+                today.isoformat(),
+            )
+            return len(overdue)
+
+    def offer_waitlist_slot_by_admin(
+        self,
+        booking_id: int,
+        admin_telegram_user_id: int,
+        slot_start_at_msk_naive: datetime,
+        slot_end_at_msk_naive: datetime,
+    ) -> BookingDecisionResult:
+        with self._session_scope() as session:
+            booking = self._repository.get_by_id(session=session, booking_id=booking_id)
+            if booking is None:
+                raise ValueError("Заявка не найдена.")
+            if booking.status not in {"waitlist", "waitlist_offered"}:
+                raise ValueError("Предложить слот можно только для заявки из листа ожидания.")
+
+            user = self._user_repository.get_by_id(session=session, user_id=booking.user_id)
+            if user is None:
+                raise ValueError("Пользователь заявки не найден.")
+
+            if self._repository.has_slot_conflict(
+                session=session,
+                slot_start_at=slot_start_at_msk_naive,
+                slot_end_at=slot_end_at_msk_naive,
+                exclude_booking_id=booking.id,
+            ):
+                raise ValueError("Слот больше недоступен. Выберите другой.")
+
+            self._repository.update_fields(
+                booking,
+                requested_new_slot_start_at=slot_start_at_msk_naive,
+                requested_new_slot_end_at=slot_end_at_msk_naive,
+                expires_at=None,
+            )
+            self._transition_status(
+                session=session,
+                booking=booking,
+                new_status="waitlist_offered",
+                changed_by=f"admin:{admin_telegram_user_id}",
+            )
+            session.flush()
+            logger.info(
+                "Waitlist slot offered: booking_id=%s admin_tg_id=%s slot_start=%s slot_end=%s",
+                booking.id,
+                admin_telegram_user_id,
+                slot_start_at_msk_naive,
+                slot_end_at_msk_naive,
+            )
+            return BookingDecisionResult(booking=booking, user=user)
+
+    def accept_waitlist_offer_by_user(
+        self,
+        booking_id: int,
+        user_id: int,
+        user_telegram_user_id: int,
+        expires_at_msk_naive: datetime,
+    ) -> Booking:
+        with self._session_scope() as session:
+            booking = self._repository.get_by_id_for_user(session=session, booking_id=booking_id, user_id=user_id)
+            if booking is None:
+                raise ValueError("Заявка не найдена.")
+            if booking.status != "waitlist_offered":
+                raise ValueError("Сейчас нет активного предложения слота для этой заявки.")
+            if booking.requested_new_slot_start_at is None or booking.requested_new_slot_end_at is None:
+                raise ValueError("Предложенный слот не найден.")
+
+            proposed_start = self._as_msk_naive(booking.requested_new_slot_start_at)
+            proposed_end = self._as_msk_naive(booking.requested_new_slot_end_at)
+            if self._repository.has_slot_conflict(
+                session=session,
+                slot_start_at=proposed_start,
+                slot_end_at=proposed_end,
+                exclude_booking_id=booking.id,
+            ):
+                raise ValueError("Слот больше недоступен. Попросите администратора предложить другой.")
+
+            self._repository.update_fields(
+                booking,
+                slot_start_at=booking.requested_new_slot_start_at,
+                slot_end_at=booking.requested_new_slot_end_at,
+                requested_new_slot_start_at=None,
+                requested_new_slot_end_at=None,
+                waitlist_date=None,
+                expires_at=expires_at_msk_naive,
+            )
+            self._transition_status(
+                session=session,
+                booking=booking,
+                new_status="pending_decision",
+                changed_by=f"user:{user_telegram_user_id}",
+            )
+            session.flush()
+            logger.info(
+                "Waitlist offer accepted by user: booking_id=%s user_id=%s expires_at=%s",
+                booking.id,
+                user_id,
+                expires_at_msk_naive,
+            )
+            return booking
+
+    def reject_waitlist_offer_by_user(
+        self,
+        booking_id: int,
+        user_id: int,
+        user_telegram_user_id: int,
+    ) -> Booking:
+        with self._session_scope() as session:
+            booking = self._repository.get_by_id_for_user(session=session, booking_id=booking_id, user_id=user_id)
+            if booking is None:
+                raise ValueError("Заявка не найдена.")
+            if booking.status != "waitlist_offered":
+                raise ValueError("Сейчас нет активного предложения слота для этой заявки.")
+
+            waitlist_day = booking.waitlist_date or datetime.now(MSK).date()
+            self._repository.update_fields(
+                booking,
+                requested_new_slot_start_at=None,
+                requested_new_slot_end_at=None,
+                waitlist_date=waitlist_day,
+                expires_at=None,
+            )
+            self._transition_status(
+                session=session,
+                booking=booking,
+                new_status="waitlist",
+                changed_by=f"user:{user_telegram_user_id}",
+            )
+            session.flush()
+            logger.info(
+                "Waitlist offer rejected by user: booking_id=%s user_id=%s waitlist_date=%s",
+                booking.id,
+                user_id,
+                waitlist_day.isoformat(),
             )
             return booking
 
@@ -296,6 +607,7 @@ class BookingService:
                 booking,
                 calendar_event_id=event_id,
                 expires_at=None,
+                waitlist_date=None,
             )
             self._transition_status(
                 session=session,
@@ -306,6 +618,13 @@ class BookingService:
             session.flush()
 
             logger.info("Booking confirmed by admin: booking_id=%s event_id=%s", booking.id, event_id)
+            if bool(getattr(user, "reminder_enabled", False)):
+                logger.info(
+                    "Reminder planned: booking_id=%s user_id=%s reminder_before_minutes=%s",
+                    booking.id,
+                    user.id,
+                    60,
+                )
             return BookingDecisionResult(booking=booking, user=user)
 
     def reject_booking_by_admin(self, booking_id: int, admin_telegram_user_id: int) -> BookingDecisionResult:
@@ -326,6 +645,7 @@ class BookingService:
                     booking,
                     requested_new_slot_start_at=None,
                     requested_new_slot_end_at=None,
+                    waitlist_date=None,
                     expires_at=None,
                 )
                 self._transition_status(
@@ -339,6 +659,7 @@ class BookingService:
                     booking,
                     slot_start_at=None,
                     slot_end_at=None,
+                    waitlist_date=None,
                     expires_at=None,
                 )
                 self._transition_status(
@@ -375,6 +696,7 @@ class BookingService:
                 booking,
                 requested_new_slot_start_at=None,
                 requested_new_slot_end_at=None,
+                waitlist_date=None,
                 previous_slot_start_at=booking.previous_slot_start_at or booking.slot_start_at,
                 previous_slot_end_at=booking.previous_slot_end_at or booking.slot_end_at,
                 slot_start_at=None,
@@ -406,7 +728,7 @@ class BookingService:
             booking = self._repository.get_by_id_for_user(session, booking_id=booking_id, user_id=user_id)
             if booking is None:
                 raise ValueError("Заявка не найдена.")
-            if booking.status not in {"draft", "pending_decision", "confirmed", "reschedule_requested"}:
+            if booking.status not in {"draft", "pending_decision", "confirmed", "reschedule_requested", "waitlist", "waitlist_offered"}:
                 raise ValueError("Эту заявку нельзя отменить в текущем статусе.")
 
             if booking.calendar_event_id:
@@ -431,6 +753,7 @@ class BookingService:
                 slot_end_at=None,
                 requested_new_slot_start_at=None,
                 requested_new_slot_end_at=None,
+                waitlist_date=None,
                 previous_slot_start_at=booking.previous_slot_start_at or booking.slot_start_at,
                 previous_slot_end_at=booking.previous_slot_end_at or booking.slot_end_at,
                 calendar_event_id=None,
@@ -483,6 +806,7 @@ class BookingService:
                 previous_slot_end_at=booking.slot_end_at,
                 requested_new_slot_start_at=requested_start_at_msk_naive,
                 requested_new_slot_end_at=requested_end_at_msk_naive,
+                waitlist_date=None,
                 expires_at=expires_at_msk_naive,
             )
             self._transition_status(
@@ -532,6 +856,7 @@ class BookingService:
                 slot_end_at=slot_end_at_msk_naive,
                 requested_new_slot_start_at=None,
                 requested_new_slot_end_at=None,
+                waitlist_date=None,
                 calendar_event_id=None,
                 expires_at=expires_at_msk_naive,
             )

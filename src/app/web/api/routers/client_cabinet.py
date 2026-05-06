@@ -3,11 +3,13 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
+from urllib.parse import quote_plus
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.application.services.booking_validation import (
+    parse_optional_comment,
     parse_optional_email,
     validate_name,
     validate_phone,
@@ -20,6 +22,7 @@ from app.web.api.schemas.client_cabinet import (
     ClientBookingActionResponse,
     ClientBookingItem,
     ClientBookingsListResponse,
+    ClientJoinWaitlistRequest,
     ClientProfilePayload,
     ClientProfileResponse,
     ClientProfileUpdateRequest,
@@ -136,6 +139,26 @@ def _resolve_user(init_data: str, auth_service: MiniAppAuthService, core: MiniAp
     return session, user
 
 
+def _as_google_calendar_dt(dt_value: datetime) -> str:
+    msk_aware = dt_value.replace(tzinfo=MSK) if dt_value.tzinfo is None else dt_value.astimezone(MSK)
+    return msk_aware.astimezone(ZoneInfo("UTC")).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _build_google_calendar_url(booking) -> str | None:
+    if booking.slot_start_at is None or booking.slot_end_at is None:
+        return None
+    title = booking.topic or "Встреча"
+    details = booking.comment or "Заявка из Telegram Mini App"
+    dates = f"{_as_google_calendar_dt(booking.slot_start_at)}/{_as_google_calendar_dt(booking.slot_end_at)}"
+    return (
+        "https://calendar.google.com/calendar/render?action=TEMPLATE"
+        f"&text={quote_plus(title)}"
+        f"&dates={quote_plus(dates)}"
+        f"&details={quote_plus(details)}"
+        "&ctz=Europe/Moscow"
+    )
+
+
 def _to_booking_item(booking) -> ClientBookingItem:
     return ClientBookingItem(
         booking_id=booking.id,
@@ -143,12 +166,17 @@ def _to_booking_item(booking) -> ClientBookingItem:
         topic=booking.topic,
         meeting_format=booking.format,
         duration_minutes=booking.duration_minutes,
+        waitlist_date=booking.waitlist_date,
         slot_start_at=booking.slot_start_at,
         slot_end_at=booking.slot_end_at,
+        offered_slot_start_at=booking.requested_new_slot_start_at,
+        offered_slot_end_at=booking.requested_new_slot_end_at,
         comment=booking.comment,
         admin_public_comment=booking.admin_public_comment,
         meeting_link=booking.meeting_link,
         calendar_event_id=booking.calendar_event_id,
+        google_calendar_url=_build_google_calendar_url(booking),
+        is_urgent=bool(getattr(booking, "is_urgent", False)),
         updated_at=booking.updated_at,
     )
 
@@ -321,6 +349,113 @@ def submit_reschedule(
     )
 
 
+@router.post("/bookings/{booking_id}/waitlist", response_model=ClientBookingActionResponse)
+def join_waitlist_from_client_cabinet(
+    booking_id: int,
+    payload: ClientJoinWaitlistRequest,
+    auth_service: MiniAppAuthService = Depends(get_auth_service),
+    core: MiniAppCoreServices = Depends(get_core_services),
+) -> ClientBookingActionResponse:
+    session, user = _resolve_user(payload.init_data, auth_service=auth_service, core=core)
+    today = datetime.now(MSK).date()
+    if payload.waitlist_date < today:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Нельзя добавить в лист ожидания прошедшую дату.",
+        )
+    max_date = today + timedelta(days=120)
+    if payload.waitlist_date > max_date:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Дата листа ожидания слишком далеко. Выберите дату ближе.",
+        )
+    waitlist_comment = parse_optional_comment(payload.waitlist_comment or "")
+    if not waitlist_comment:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Добавьте комментарий для листа ожидания: почему нужна именно эта дата.",
+        )
+    try:
+        updated = core.booking_service.join_waitlist(
+            booking_id=booking_id,
+            user_id=user.id,
+            user_telegram_user_id=session.user.telegram_user_id,
+            waitlist_date_value=payload.waitlist_date,
+            waitlist_comment=waitlist_comment,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    logger.info(
+        "Mini App client waitlist joined via client route: booking_id=%s user_id=%s waitlist_date=%s",
+        updated.id,
+        user.id,
+        payload.waitlist_date.isoformat(),
+    )
+    return ClientBookingActionResponse(
+        booking_id=updated.id,
+        status=updated.status,
+        message="Добавили в лист ожидания. Администратор предложит доступный слот.",
+    )
+
+
+@router.post("/bookings/{booking_id}/waitlist/accept", response_model=ClientBookingActionResponse)
+def accept_waitlist_offer(
+    booking_id: int,
+    payload: ClientBookingActionRequest,
+    auth_service: MiniAppAuthService = Depends(get_auth_service),
+    core: MiniAppCoreServices = Depends(get_core_services),
+) -> ClientBookingActionResponse:
+    session, user = _resolve_user(payload.init_data, auth_service=auth_service, core=core)
+    expires_at = (datetime.now(MSK) + timedelta(hours=72)).replace(tzinfo=None)
+    try:
+        updated = core.booking_service.accept_waitlist_offer_by_user(
+            booking_id=booking_id,
+            user_id=user.id,
+            user_telegram_user_id=session.user.telegram_user_id,
+            expires_at_msk_naive=expires_at,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    logger.info(
+        "Mini App client accepted waitlist offer: booking_id=%s user_id=%s",
+        updated.id,
+        user.id,
+    )
+    return ClientBookingActionResponse(
+        booking_id=updated.id,
+        status=updated.status,
+        message="Слот принят. Заявка снова ожидает решения администратора.",
+    )
+
+
+@router.post("/bookings/{booking_id}/waitlist/reject", response_model=ClientBookingActionResponse)
+def reject_waitlist_offer(
+    booking_id: int,
+    payload: ClientBookingActionRequest,
+    auth_service: MiniAppAuthService = Depends(get_auth_service),
+    core: MiniAppCoreServices = Depends(get_core_services),
+) -> ClientBookingActionResponse:
+    session, user = _resolve_user(payload.init_data, auth_service=auth_service, core=core)
+    try:
+        updated = core.booking_service.reject_waitlist_offer_by_user(
+            booking_id=booking_id,
+            user_id=user.id,
+            user_telegram_user_id=session.user.telegram_user_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    logger.info(
+        "Mini App client rejected waitlist offer: booking_id=%s user_id=%s",
+        updated.id,
+        user.id,
+    )
+    return ClientBookingActionResponse(
+        booking_id=updated.id,
+        status=updated.status,
+        message="Предложенный слот отклонён. Заявка возвращена в лист ожидания.",
+    )
+
+
 @router.get("/profile", response_model=ClientProfileResponse)
 def get_profile(
     init_data: str = Query(..., min_length=1),
@@ -335,8 +470,8 @@ def get_profile(
             email=user.email,
             phone=user.phone,
             telegram_username=user.telegram_username,
-            reminder_supported=False,
-            reminder_enabled=None,
+            reminder_supported=True,
+            reminder_enabled=bool(getattr(user, "reminder_enabled", False)),
         )
     )
 
@@ -371,6 +506,7 @@ def update_profile(
         name=name_value,
         email=email_value,
         phone=phone_value,
+        reminder_enabled=payload.reminder_enabled,
     )
     logger.info("Mini App client profile updated: user_id=%s", user.id)
     return ClientProfileResponse(
@@ -379,7 +515,7 @@ def update_profile(
             email=updated.email,
             phone=updated.phone,
             telegram_username=updated.telegram_username,
-            reminder_supported=False,
-            reminder_enabled=None,
+            reminder_supported=True,
+            reminder_enabled=bool(getattr(updated, "reminder_enabled", False)),
         )
     )

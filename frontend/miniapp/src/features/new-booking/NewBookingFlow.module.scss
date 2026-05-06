@@ -87,6 +87,10 @@
   resize: vertical;
 }
 
+.compactTextarea {
+  min-height: 110px !important;
+}
+
 .segment {
   display: grid;
   gap: 12px;
@@ -172,6 +176,23 @@
   font-size: 16px;
   min-height: 50px;
   text-align: center;
+}
+
+.waitlistToggleWrap {
+  display: flex;
+  justify-content: center;
+  margin-top: 6px;
+}
+
+.waitlistToggleButton {
+  min-height: 36px;
+  border-radius: 999px;
+  border: 1px solid rgba(112, 141, 164, 0.28);
+  background: #ffffff;
+  color: #5b748b;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 14px;
 }
 
 .optionColumn {

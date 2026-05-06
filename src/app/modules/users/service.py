@@ -56,6 +56,7 @@ class UserService:
         name: Optional[str] = None,
         phone: Optional[str] = None,
         email: Optional[str] = None,
+        reminder_enabled: Optional[bool] = None,
     ) -> User:
         with self._session_scope() as session:
             user = self._repository.get_by_telegram_user_id(session, telegram_user_id)
@@ -68,14 +69,17 @@ class UserService:
                 user.phone = phone
             if email is not None:
                 user.email = email
+            if reminder_enabled is not None:
+                user.reminder_enabled = bool(reminder_enabled)
 
             session.flush()
             logger.info(
-                "User profile updated: telegram_user_id=%s name=%s phone=%s email=%s",
+                "User profile updated: telegram_user_id=%s name=%s phone=%s email=%s reminder=%s",
                 telegram_user_id,
                 bool(name),
                 bool(phone),
                 bool(email),
+                reminder_enabled if reminder_enabled is not None else "<unchanged>",
             )
             return user
 

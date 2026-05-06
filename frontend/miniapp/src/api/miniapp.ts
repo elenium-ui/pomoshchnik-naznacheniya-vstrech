@@ -11,6 +11,7 @@ import type {
   ClientBookingsListResponse,
   ClientProfileResponse,
   ClientRescheduleStartResponse,
+  JoinWaitlistResponse,
   ModeName,
   SaveBookingDraftRequest,
   SaveBookingDraftResponse,
@@ -60,8 +61,18 @@ export function switchAuthMode(initData: string, mode: ModeName): Promise<AuthSe
   });
 }
 
-export function startBookingSession(initData: string): Promise<StartBookingSessionResponse> {
+export function startBookingSession(
+  initData: string,
+  options?: { start_over?: boolean }
+): Promise<StartBookingSessionResponse> {
   return postJson<StartBookingSessionResponse>("/api/miniapp/bookings/new/session", {
+    init_data: initData,
+    start_over: Boolean(options?.start_over)
+  });
+}
+
+export function discardActiveDraft(initData: string): Promise<SaveBookingDraftResponse> {
+  return postJson<SaveBookingDraftResponse>("/api/miniapp/bookings/draft/discard", {
     init_data: initData
   });
 }
@@ -109,6 +120,37 @@ export function submitBooking(
   });
 }
 
+export function joinBookingWaitlist(
+  bookingId: number,
+  initData: string,
+  waitlistDate: string,
+  waitlistComment?: string
+): Promise<JoinWaitlistResponse> {
+  const payload = {
+    init_data: initData,
+    waitlist_date: waitlistDate,
+    waitlist_comment: waitlistComment ?? null
+  };
+  return postJson<JoinWaitlistResponse>(`/api/miniapp/bookings/${bookingId}/waitlist`, payload).catch(
+    async (error: Error) => {
+      if (!/not found/i.test(error.message)) {
+        throw error;
+      }
+      // Backward-compatible fallback for environments with older booking-flow routing.
+      const fallback = await postJson<ClientBookingActionResponse>(
+        `/api/miniapp/client/bookings/${bookingId}/waitlist`,
+        payload
+      );
+      return {
+        booking_id: fallback.booking_id,
+        status: fallback.status,
+        waitlist_date: waitlistDate,
+        message: fallback.message
+      };
+    }
+  );
+}
+
 export async function loadClientActiveBookings(initData: string): Promise<ClientBookingsListResponse> {
   const params = new URLSearchParams({ init_data: initData });
   const response = await fetch(`${API_BASE_URL}/api/miniapp/client/bookings/active?${params.toString()}`);
@@ -153,6 +195,24 @@ export function submitClientReschedule(
   return postJson<ClientBookingActionResponse>(`/api/miniapp/client/bookings/${bookingId}/reschedule/submit`, {
     init_data: initData,
     slot_key: slotKey
+  });
+}
+
+export function acceptClientWaitlistOffer(
+  bookingId: number,
+  initData: string
+): Promise<ClientBookingActionResponse> {
+  return postJson<ClientBookingActionResponse>(`/api/miniapp/client/bookings/${bookingId}/waitlist/accept`, {
+    init_data: initData
+  });
+}
+
+export function rejectClientWaitlistOffer(
+  bookingId: number,
+  initData: string
+): Promise<ClientBookingActionResponse> {
+  return postJson<ClientBookingActionResponse>(`/api/miniapp/client/bookings/${bookingId}/waitlist/reject`, {
+    init_data: initData
   });
 }
 
@@ -255,6 +315,28 @@ export function updateAdminBookingMeta(
   return postJson<AdminBookingActionResponse>(`/api/miniapp/admin/bookings/${bookingId}/meta`, {
     init_data: initData,
     ...payload
+  });
+}
+
+export function offerAdminWaitlistSlot(
+  initData: string,
+  bookingId: number,
+  slotKey: string
+): Promise<AdminBookingActionResponse> {
+  return postJson<AdminBookingActionResponse>(`/api/miniapp/admin/bookings/${bookingId}/waitlist/offer`, {
+    init_data: initData,
+    slot_key: slotKey
+  });
+}
+
+export function rejectAdminWaitlist(
+  initData: string,
+  bookingId: number,
+  adminPublicComment: string
+): Promise<AdminBookingActionResponse> {
+  return postJson<AdminBookingActionResponse>(`/api/miniapp/admin/bookings/${bookingId}/waitlist/reject`, {
+    init_data: initData,
+    admin_public_comment: adminPublicComment
   });
 }
 

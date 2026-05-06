@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  acceptClientWaitlistOffer,
   addAdminOneTimeWindow,
   addAdminTimeBlock,
   addAdminWorkingWindow,
@@ -14,16 +15,21 @@ import {
   loadAdminBooking,
   loadAdminBookings,
   loadAdminCalendarOverview,
+  loadBookingSlots,
   loadClientActiveBookings,
   loadClientHistoryBookings,
   loadClientProfile,
+  offerAdminWaitlistSlot,
   rejectAdminBooking,
+  rejectAdminWaitlist,
+  rejectClientWaitlistOffer,
   removeAdminWorkingWindow,
   removeAdminTimeBlock,
   removeAdminOneTimeWindow,
   removeAdminOneTimeWindowsByDate,
   reopenAdminDay,
   startClientReschedule,
+  startBookingSession,
   submitClientReschedule,
   switchAuthMode,
   updateAdminMinLead,
@@ -105,6 +111,8 @@ function statusLabel(status: string): string {
     pending_decision: "Ожидает решения",
     confirmed: "Подтверждена",
     reschedule_requested: "Запрошен перенос",
+    waitlist: "Лист ожидания",
+    waitlist_offered: "Предложен слот",
     rejected: "Отклонена",
     expired: "Истекла",
     canceled_by_user: "Отменена вами",
@@ -126,7 +134,7 @@ function statusBadgeClass(status: string): string {
   if (status === "confirmed") {
     return styles.statusBadgeSuccess;
   }
-  if (status === "pending_decision" || status === "reschedule_requested") {
+  if (status === "pending_decision" || status === "reschedule_requested" || status === "waitlist" || status === "waitlist_offered") {
     return styles.statusBadgeWarning;
   }
   if (
@@ -170,6 +178,15 @@ type CancelDialogState = {
   error: string;
 };
 
+type WaitlistOfferState = {
+  bookingId: number;
+  topic: string;
+  slotsData: BookingSlotsResponse;
+  selectedWeek: string;
+  selectedDay: string;
+  selectedSlot: SlotTimeOption | null;
+};
+
 type AdminQuickView = "needs_action" | "confirmed" | "canceled" | "archive" | "all";
 type ClientQuickFilter = "all" | "pending" | "confirmed" | "draft" | "canceled";
 type AdminSettingsSection = "lead" | "windows" | "one_time" | "closed_days" | "time_blocks";
@@ -184,7 +201,7 @@ const ADMIN_ARCHIVE_STATUSES = new Set([
 ]);
 
 const CLIENT_FILTER_STATUS_MAP: Record<Exclude<ClientQuickFilter, "all">, Set<string>> = {
-  pending: new Set(["pending_decision", "reschedule_requested"]),
+  pending: new Set(["pending_decision", "reschedule_requested", "waitlist", "waitlist_offered"]),
   confirmed: new Set(["confirmed"]),
   draft: new Set(["draft"]),
   canceled: new Set([
@@ -200,6 +217,8 @@ const CLIENT_FILTER_STATUS_MAP: Record<Exclude<ClientQuickFilter, "all">, Set<st
 const CLIENT_BOOKING_PRIORITY: Record<string, number> = {
   pending_decision: 0,
   reschedule_requested: 0,
+  waitlist: 0,
+  waitlist_offered: 0,
   confirmed: 1,
   draft: 2,
   rejected: 3,
@@ -250,6 +269,22 @@ function weekdayLabel(weekday: number): string {
   return labels[weekday] ?? String(weekday);
 }
 
+function buildWaitlistRejectTemplate(waitlistDate?: string | null): string {
+  const dateLabel = waitlistDate ? formatDayLabel(waitlistDate) : "выбранную дату";
+  return `На ${dateLabel} свободных слотов не осталось. Заявка в листе ожидания закрыта. Пожалуйста, выберите другую дату для записи.`;
+}
+
+function openExternalLink(url: string): void {
+  const webApp = getTelegramWebApp() as { openLink?: (href: string) => void } | null;
+  if (webApp?.openLink) {
+    webApp.openLink(url);
+    return;
+  }
+  if (typeof window !== "undefined") {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+}
+
 function startOfWeek(dateValue: Date): Date {
   const result = new Date(dateValue);
   const day = result.getDay();
@@ -282,20 +317,28 @@ function diffDaysInclusive(start: Date, end: Date): number {
 export function AppShellPage() {
   const initData = useMemo(() => getTelegramInitData(), []);
   const hostPhotoUrl = (import.meta.env.VITE_HOST_PHOTO_URL ?? "/host-photo.png").trim();
+  const logoUrl = (import.meta.env.VITE_LOGO_URL ?? "/logo.png").trim();
   const todayIso = useMemo(() => toIsoDate(new Date()), []);
   const queryClient = useQueryClient();
   const [currentMode, setCurrentMode] = useState<ModeName | null>(null);
   const [activeTabKey, setActiveTabKey] = useState<string>("home");
   const [newBookingOpen, setNewBookingOpen] = useState(false);
+  const [newBookingStartMode, setNewBookingStartMode] = useState<"resume" | "new">("resume");
+  const [draftChoiceOpen, setDraftChoiceOpen] = useState(false);
+  const [draftChoiceLoading, setDraftChoiceLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState<string>("");
   const [rescheduleError, setRescheduleError] = useState<string>("");
   const [rescheduleState, setRescheduleState] = useState<RescheduleState | null>(null);
+  const [waitlistOfferState, setWaitlistOfferState] = useState<WaitlistOfferState | null>(null);
+  const [adminWaitlistRejectComment, setAdminWaitlistRejectComment] = useState("");
   const [cancelDialog, setCancelDialog] = useState<CancelDialogState | null>(null);
   const [profileForm, setProfileForm] = useState({
     name: "",
     email: "",
     phone: ""
   });
+  const [reminderEnabled, setReminderEnabled] = useState(false);
+  const [profileSaveNotice, setProfileSaveNotice] = useState("");
   const [selectedAdminBookingId, setSelectedAdminBookingId] = useState<number | null>(null);
   const [adminMetaForm, setAdminMetaForm] = useState({
     admin_public_comment: "",
@@ -304,6 +347,7 @@ export function AppShellPage() {
   const [adminQuickView, setAdminQuickView] = useState<AdminQuickView>("needs_action");
   const [clientQuickFilter, setClientQuickFilter] = useState<ClientQuickFilter>("all");
   const [photoLoadFailed, setPhotoLoadFailed] = useState(false);
+  const [logoLoadFailed, setLogoLoadFailed] = useState(false);
   const [calendarFromDate, setCalendarFromDate] = useState(todayIso);
   const [calendarUseCurrentWeek, setCalendarUseCurrentWeek] = useState(true);
   const [minLeadMinutesInput, setMinLeadMinutesInput] = useState("60");
@@ -445,6 +489,7 @@ export function AppShellPage() {
       email: profileQuery.data.profile.email ?? "",
       phone: profileQuery.data.profile.phone ?? ""
     });
+    setReminderEnabled(Boolean(profileQuery.data.profile.reminder_enabled));
   }, [profileQuery.data]);
 
   useEffect(() => {
@@ -456,6 +501,25 @@ export function AppShellPage() {
       meeting_link: adminBookingCardQuery.data.meeting_link ?? ""
     });
   }, [adminBookingCardQuery.data]);
+
+  useEffect(() => {
+    const booking = adminBookingCardQuery.data;
+    if (!booking || (booking.status !== "waitlist" && booking.status !== "waitlist_offered")) {
+      setAdminWaitlistRejectComment("");
+      return;
+    }
+    const existingComment = booking.admin_public_comment?.trim();
+    if (existingComment) {
+      setAdminWaitlistRejectComment(existingComment);
+      return;
+    }
+    setAdminWaitlistRejectComment(buildWaitlistRejectTemplate(booking.waitlist_date));
+  }, [
+    adminBookingCardQuery.data?.booking_id,
+    adminBookingCardQuery.data?.status,
+    adminBookingCardQuery.data?.waitlist_date,
+    adminBookingCardQuery.data?.admin_public_comment
+  ]);
 
   useEffect(() => {
     if (!adminAvailabilitySettingsQuery.data) {
@@ -483,8 +547,12 @@ export function AppShellPage() {
   useEffect(() => {
     setActionMessage("");
     setRescheduleState(null);
+    setWaitlistOfferState(null);
+    setAdminWaitlistRejectComment("");
     setRescheduleError("");
     setSelectedAdminBookingId(null);
+    setDraftChoiceOpen(false);
+    setProfileSaveNotice("");
   }, [activeTabKey]);
 
   useEffect(() => {
@@ -496,6 +564,7 @@ export function AppShellPage() {
     );
     if (!exists) {
       setSelectedAdminBookingId(null);
+      setWaitlistOfferState(null);
     }
   }, [adminBookingsQuery.data, selectedAdminBookingId]);
 
@@ -510,6 +579,14 @@ export function AppShellPage() {
     const timeout = setTimeout(() => setActionMessage(""), 3500);
     return () => clearTimeout(timeout);
   }, [actionMessage]);
+
+  useEffect(() => {
+    if (!profileSaveNotice) {
+      return;
+    }
+    const timeout = setTimeout(() => setProfileSaveNotice(""), 4500);
+    return () => clearTimeout(timeout);
+  }, [profileSaveNotice]);
 
   const cancelBookingMutation = useMutation({
     mutationFn: (bookingId: number) => cancelClientBooking(bookingId, initData),
@@ -580,18 +657,47 @@ export function AppShellPage() {
     }
   });
 
+  const acceptWaitlistOfferMutation = useMutation({
+    mutationFn: (bookingId: number) => acceptClientWaitlistOffer(bookingId, initData),
+    onSuccess: (payload) => {
+      setActionMessage(payload.message);
+      void queryClient.invalidateQueries({ queryKey: ["miniapp-client-active-bookings", initData] });
+      void queryClient.invalidateQueries({ queryKey: ["miniapp-admin-bookings", initData] });
+    },
+    onError: (error: Error) => {
+      setActionMessage(error.message || "Не удалось принять предложенный слот.");
+    }
+  });
+
+  const rejectWaitlistOfferMutation = useMutation({
+    mutationFn: (bookingId: number) => rejectClientWaitlistOffer(bookingId, initData),
+    onSuccess: (payload) => {
+      setActionMessage(payload.message);
+      void queryClient.invalidateQueries({ queryKey: ["miniapp-client-active-bookings", initData] });
+      void queryClient.invalidateQueries({ queryKey: ["miniapp-admin-bookings", initData] });
+    },
+    onError: (error: Error) => {
+      setActionMessage(error.message || "Не удалось отклонить предложенный слот.");
+    }
+  });
+
   const updateProfileMutation = useMutation({
     mutationFn: () =>
       updateClientProfile({
         init_data: initData,
         name: profileForm.name,
         email: profileForm.email,
-        phone: profileForm.phone
+        phone: profileForm.phone,
+        reminder_enabled: reminderEnabled
       }),
     onSuccess: () => {
-      setActionMessage("Профиль обновлён.");
+      setActionMessage("Настройки сохранены.");
+      setProfileSaveNotice("Настройки профиля сохранены.");
       void queryClient.invalidateQueries({ queryKey: ["miniapp-client-profile", initData] });
       void queryClient.invalidateQueries({ queryKey: ["miniapp-auth-session", initData] });
+    },
+    onError: (error: Error) => {
+      setProfileSaveNotice(error.message || "Не удалось сохранить настройки профиля.");
     }
   });
 
@@ -620,6 +726,69 @@ export function AppShellPage() {
     },
     onError: (error: Error) => {
       setActionMessage(error.message || "Не удалось отклонить заявку.");
+    }
+  });
+
+  const loadWaitlistOfferSlotsMutation = useMutation({
+    mutationFn: ({ bookingId, topic, durationMinutes }: { bookingId: number; topic: string; durationMinutes: number }) =>
+      loadBookingSlots(initData, durationMinutes),
+    onSuccess: (payload, variables) => {
+      const firstWeek = payload.week_options[0]?.key ?? "";
+      const firstDay = payload.day_options_by_week[firstWeek]?.[0]?.key ?? "";
+      const firstSlot = payload.time_options_by_day[firstDay]?.[0] ?? null;
+      setWaitlistOfferState({
+        bookingId: variables.bookingId,
+        topic: variables.topic,
+        slotsData: payload,
+        selectedWeek: firstWeek,
+        selectedDay: firstDay,
+        selectedSlot: firstSlot
+      });
+      setRescheduleError("");
+    },
+    onError: (error: Error) => {
+      setActionMessage(error.message || "Не удалось подобрать слоты для предложения.");
+    }
+  });
+
+  const offerWaitlistSlotMutation = useMutation({
+    mutationFn: () => {
+      if (!waitlistOfferState?.selectedSlot) {
+        throw new Error("Выберите слот для предложения.");
+      }
+      return offerAdminWaitlistSlot(
+        initData,
+        waitlistOfferState.bookingId,
+        waitlistOfferState.selectedSlot.slot_key
+      );
+    },
+    onSuccess: (payload) => {
+      setActionMessage(payload.message);
+      setWaitlistOfferState(null);
+      setSelectedAdminBookingId(null);
+      void queryClient.invalidateQueries({ queryKey: ["miniapp-admin-bookings", initData] });
+      void queryClient.invalidateQueries({ queryKey: ["miniapp-admin-booking-card", initData, selectedAdminBookingId] });
+      void queryClient.invalidateQueries({ queryKey: ["miniapp-client-active-bookings", initData] });
+    },
+    onError: (error: Error) => {
+      setActionMessage(error.message || "Не удалось отправить предложение слота.");
+    }
+  });
+
+  const rejectAdminWaitlistMutation = useMutation({
+    mutationFn: ({ bookingId, comment }: { bookingId: number; comment: string }) =>
+      rejectAdminWaitlist(initData, bookingId, comment),
+    onSuccess: (payload) => {
+      setActionMessage(payload.message);
+      setSelectedAdminBookingId(null);
+      setWaitlistOfferState(null);
+      void queryClient.invalidateQueries({ queryKey: ["miniapp-admin-bookings", initData] });
+      void queryClient.invalidateQueries({ queryKey: ["miniapp-admin-booking-card", initData, selectedAdminBookingId] });
+      void queryClient.invalidateQueries({ queryKey: ["miniapp-client-active-bookings", initData] });
+      void queryClient.invalidateQueries({ queryKey: ["miniapp-client-history-bookings", initData] });
+    },
+    onError: (error: Error) => {
+      setActionMessage(error.message || "Не удалось отклонить заявку из листа ожидания.");
     }
   });
 
@@ -855,11 +1024,26 @@ export function AppShellPage() {
     setActiveTabKey(navItems[0].key);
   }, [resolvedMode]);
 
+  const brandNode = (
+    <div className={styles.brand}>
+      {!logoLoadFailed && logoUrl ? (
+        <img
+          src={logoUrl}
+          alt="ERMID"
+          className={styles.brandLogo}
+          onError={() => setLogoLoadFailed(true)}
+        />
+      ) : (
+        <span>ERMID</span>
+      )}
+    </div>
+  );
+
   if (!initData) {
     return (
       <main className={styles.page}>
         <section className={styles.card}>
-          <div className={styles.brand}>ER Meet</div>
+          {brandNode}
           <h1>Нужен запуск из Telegram</h1>
           <p>
             Mini App ожидает Telegram `initData`. Откройте приложение через кнопку в боте, чтобы
@@ -874,7 +1058,7 @@ export function AppShellPage() {
     return (
       <main className={styles.page}>
         <section className={styles.card}>
-          <div className={styles.brand}>ER Meet</div>
+          {brandNode}
           <h1>Не удалось открыть приложение</h1>
           <p>{sessionQuery.error.message}</p>
           <div className={styles.actionsRow}>
@@ -898,7 +1082,7 @@ export function AppShellPage() {
     return (
       <main className={styles.page}>
         <section className={styles.card}>
-          <div className={styles.brand}>ER Meet</div>
+          {brandNode}
           <h1>Загрузка</h1>
           <p>Проверяем доступ и подготавливаем рабочее пространство Mini App.</p>
         </section>
@@ -953,7 +1137,12 @@ export function AppShellPage() {
       Boolean(item.slot_end_at) &&
       new Date(item.slot_end_at as string).getTime() < Date.now();
     if (adminQuickView === "needs_action") {
-      return item.status === "pending_decision" || item.status === "reschedule_requested";
+      return (
+        item.status === "pending_decision" ||
+        item.status === "reschedule_requested" ||
+        item.status === "waitlist" ||
+        item.status === "waitlist_offered"
+      );
     }
     if (adminQuickView === "confirmed") {
       return item.status === "confirmed" && !isPastConfirmed;
@@ -1015,6 +1204,24 @@ export function AppShellPage() {
     setCalendarFromDate(toIsoDate(startOfWeek(base)));
   }
 
+  async function handleStartBookingClick() {
+    setDraftChoiceLoading(true);
+    try {
+      const session = await startBookingSession(initData);
+      if (session.has_active_draft) {
+        setDraftChoiceOpen(true);
+        return;
+      }
+      setNewBookingStartMode("resume");
+      setNewBookingOpen(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось открыть форму новой заявки.";
+      setActionMessage(message);
+    } finally {
+      setDraftChoiceLoading(false);
+    }
+  }
+
   function renderBookingCard(item: ClientBookingItem, showActions: boolean) {
     const statusClass =
       item.status === "confirmed"
@@ -1033,21 +1240,109 @@ export function AppShellPage() {
           </span>
         </div>
         <p className={styles.softText}>Время: {formatSlot(item.slot_start_at, item.slot_end_at)}</p>
+        {item.waitlist_date ? <p className={styles.softText}>Лист ожидания на дату: {formatDayLabel(item.waitlist_date)}</p> : null}
+        {item.offered_slot_start_at ? (
+          <p className={styles.softText}>
+            Предложенный слот: {formatSlot(item.offered_slot_start_at, item.offered_slot_end_at)}
+          </p>
+        ) : null}
         <p className={styles.softText}>Формат: {item.meeting_format || "не указан"}</p>
         <p className={styles.softText}>Длительность: {item.duration_minutes || "—"} мин</p>
-        {item.comment ? <p className={styles.softText}>Комментарий: {item.comment}</p> : null}
+        <p className={styles.softText}>Комментарий: {item.comment?.trim() || "не указан"}</p>
         {item.admin_public_comment ? (
           <p className={styles.softText}>Комментарий администратора: {item.admin_public_comment}</p>
         ) : null}
         {item.meeting_link ? (
           <p className={styles.softText}>
             Ссылка на встречу:{" "}
-            <a href={item.meeting_link} target="_blank" rel="noreferrer">
+            <a
+              href={item.meeting_link}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(event) => {
+                event.preventDefault();
+                openExternalLink(item.meeting_link as string);
+              }}
+            >
               открыть
             </a>
           </p>
         ) : null}
-        {showActions ? (
+        {item.google_calendar_url ? (
+          <p className={styles.softText}>
+            <a
+              href={item.google_calendar_url}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(event) => {
+                event.preventDefault();
+                openExternalLink(item.google_calendar_url as string);
+              }}
+            >
+              Добавить в Google Календарь
+            </a>
+          </p>
+        ) : null}
+        {showActions && item.status === "draft" ? (
+          <div className={styles.cardActions}>
+            <button
+              type="button"
+              className={styles.button}
+              onClick={() => {
+                setNewBookingStartMode("resume");
+                setNewBookingOpen(true);
+              }}
+            >
+              Редактировать черновик
+            </button>
+            <button
+              type="button"
+              className={styles.buttonGhost}
+              onClick={() =>
+                cancelBookingMutation.mutate(item.booking_id)
+              }
+              disabled={cancelBookingMutation.isPending}
+            >
+              Удалить черновик
+            </button>
+          </div>
+        ) : null}
+        {showActions && item.status === "waitlist_offered" ? (
+          <div className={styles.cardActions}>
+            <button
+              type="button"
+              className={styles.button}
+              onClick={() => acceptWaitlistOfferMutation.mutate(item.booking_id)}
+              disabled={acceptWaitlistOfferMutation.isPending || rejectWaitlistOfferMutation.isPending}
+            >
+              Принять слот
+            </button>
+            <button
+              type="button"
+              className={styles.buttonGhost}
+              onClick={() => rejectWaitlistOfferMutation.mutate(item.booking_id)}
+              disabled={acceptWaitlistOfferMutation.isPending || rejectWaitlistOfferMutation.isPending}
+            >
+              Остаться в листе ожидания
+            </button>
+            <button
+              type="button"
+              className={styles.buttonGhost}
+              onClick={() =>
+                setCancelDialog({
+                  bookingId: item.booking_id,
+                  topic: item.topic || "Заявка без темы",
+                  comment: "",
+                  error: ""
+                })
+              }
+              disabled={cancelBookingMutation.isPending}
+            >
+              Отменить
+            </button>
+          </div>
+        ) : null}
+        {showActions && (item.status === "pending_decision" || item.status === "confirmed" || item.status === "reschedule_requested") ? (
           <div className={styles.cardActions}>
             <button
               type="button"
@@ -1076,6 +1371,25 @@ export function AppShellPage() {
               disabled={startRescheduleMutation.isPending}
             >
               Перенести
+            </button>
+          </div>
+        ) : null}
+        {showActions && item.status === "waitlist" ? (
+          <div className={styles.cardActions}>
+            <button
+              type="button"
+              className={styles.buttonGhost}
+              onClick={() =>
+                setCancelDialog({
+                  bookingId: item.booking_id,
+                  topic: item.topic || "Заявка без темы",
+                  comment: "",
+                  error: ""
+                })
+              }
+              disabled={cancelBookingMutation.isPending}
+            >
+              Отменить
             </button>
           </div>
         ) : null}
@@ -1108,10 +1422,16 @@ export function AppShellPage() {
         <p className={styles.softText}>Клиент: {formatAdminClientName(item.user)}</p>
         <p className={styles.softText}>Telegram: {formatTelegramUsername(item.user.telegram_username)}</p>
         <p className={styles.softText}>Контакты: {contactsLabel}</p>
+        {item.waitlist_date ? <p className={styles.softText}>Дата листа ожидания: {formatDayLabel(item.waitlist_date)}</p> : null}
         <p className={styles.softText}>Время: {formatSlot(item.slot_start_at, item.slot_end_at)}</p>
+        {item.requested_new_slot_start_at ? (
+          <p className={styles.softText}>
+            Предложенный слот: {formatSlot(item.requested_new_slot_start_at, item.requested_new_slot_end_at)}
+          </p>
+        ) : null}
         <p className={styles.softText}>Формат: {item.meeting_format || "не указан"}</p>
         <p className={styles.softText}>Длительность: {item.duration_minutes || "—"} мин</p>
-        {item.comment ? <p className={styles.softText}>Комментарий клиента: {item.comment}</p> : null}
+        <p className={styles.softText}>Комментарий клиента: {item.comment?.trim() || "не указан"}</p>
       </article>
     );
   }
@@ -1176,7 +1496,7 @@ export function AppShellPage() {
         <header className={styles.header}>
           {isHomeTab ? (
             <div className={styles.heroStack}>
-              <div className={styles.brand}>ER Meet</div>
+              {brandNode}
               <h1>Запись на встречу с Еленой</h1>
               <div className={styles.photoPlaceholder}>
                 {!photoLoadFailed && hostPhotoUrl ? (
@@ -1193,12 +1513,12 @@ export function AppShellPage() {
             </div>
           ) : resolvedMode === "admin" ? (
             <>
-              <div className={styles.brand}>ER Meet</div>
+              {brandNode}
               <h1>{currentTab.key === "requests" ? "Список заявок" : currentTab.title}</h1>
             </>
           ) : (
             <>
-              <div className={styles.brand}>ER Meet</div>
+              {brandNode}
               <h1>Запись на встречу с Еленой</h1>
             </>
           )}
@@ -1223,7 +1543,12 @@ export function AppShellPage() {
               </h2>
               <p className={styles.softText}>Выберите удобное время для встречи.</p>
               {resolvedMode === "client" ? (
-                <button type="button" className={styles.primaryCta} onClick={() => setNewBookingOpen(true)}>
+                <button
+                  type="button"
+                  className={styles.primaryCta}
+                  onClick={() => void handleStartBookingClick()}
+                  disabled={draftChoiceLoading}
+                >
                   Записаться на встречу
                 </button>
               ) : null}
@@ -1323,16 +1648,27 @@ export function AppShellPage() {
                   />
                 </label>
                 <p className={styles.softText}>
-                  Напоминания: скоро появятся в одном из следующих этапов.
+                  Напоминание за 1 час (по желанию)
                 </p>
-                <button
-                  type="button"
-                  className={`${styles.primaryCta} ${styles.centeredButton}`}
-                  onClick={() => updateProfileMutation.mutate()}
-                  disabled={updateProfileMutation.isPending || profileQuery.isPending}
-                >
-                  Сохранить профиль
-                </button>
+                <label className={styles.checkboxRow}>
+                  <input
+                    type="checkbox"
+                    checked={reminderEnabled}
+                    onChange={(event) => setReminderEnabled(event.target.checked)}
+                  />
+                  <span>{reminderEnabled ? "Напоминание включено" : "Напоминание выключено"}</span>
+                </label>
+                <div className={styles.cardActionsCenter}>
+                  <button
+                    type="button"
+                    className={`${styles.primaryCta} ${styles.centeredButton}`}
+                    onClick={() => updateProfileMutation.mutate()}
+                    disabled={updateProfileMutation.isPending || profileQuery.isPending}
+                  >
+                    Сохранить профиль
+                  </button>
+                </div>
+                {profileSaveNotice ? <p className={styles.notice}>{profileSaveNotice}</p> : null}
               </div>
             ) : null}
           </section>
@@ -1897,7 +2233,7 @@ export function AppShellPage() {
                 className={styles.adminAccessButton}
                 onClick={() => modeSwitchMutation.mutate("admin")}
               >
-                Админские настройки
+                Панель администратора
               </button>
             ) : (
               <button
@@ -1912,7 +2248,61 @@ export function AppShellPage() {
         ) : null}
       </section>
       {newBookingOpen && resolvedMode === "client" ? (
-        <NewBookingFlow initData={initData} onClose={() => setNewBookingOpen(false)} />
+        <NewBookingFlow
+          initData={initData}
+          startMode={newBookingStartMode}
+          onDraftSaved={() => {
+            setActionMessage("Черновик сохранён.");
+            setActiveTabKey("bookings");
+            void queryClient.invalidateQueries({ queryKey: ["miniapp-client-active-bookings", initData] });
+          }}
+          onClose={() => setNewBookingOpen(false)}
+        />
+      ) : null}
+      {draftChoiceOpen ? (
+        <div className={styles.rescheduleOverlay}>
+          <section className={styles.rescheduleModal}>
+            <div className={styles.rescheduleHeader}>
+              <h3>Найден активный черновик</h3>
+              <button
+                type="button"
+                className={styles.buttonGhost}
+                onClick={() => setDraftChoiceOpen(false)}
+              >
+                Закрыть
+              </button>
+            </div>
+            <p className={styles.softText}>
+              Выберите действие: продолжить работу с текущим черновиком или создать новую заявку с нуля.
+            </p>
+            <div className={styles.cardActionsCenter}>
+              <button
+                type="button"
+                className={`${styles.primaryCta} ${styles.centeredButton}`}
+                onClick={() => {
+                  setDraftChoiceOpen(false);
+                  setNewBookingStartMode("new");
+                  setNewBookingOpen(true);
+                }}
+              >
+                Создать новую заявку
+              </button>
+            </div>
+            <div className={styles.cardActionsCenter}>
+              <button
+                type="button"
+                className={styles.buttonGhost}
+                onClick={() => {
+                  setDraftChoiceOpen(false);
+                  setNewBookingStartMode("resume");
+                  setNewBookingOpen(true);
+                }}
+              >
+                Редактировать существующий черновик
+              </button>
+            </div>
+          </section>
+        </div>
       ) : null}
       {cancelDialog ? (
         <div className={styles.rescheduleOverlay}>
@@ -1968,7 +2358,10 @@ export function AppShellPage() {
               <button
                 type="button"
                 className={styles.buttonGhost}
-                onClick={() => setSelectedAdminBookingId(null)}
+                onClick={() => {
+                  setSelectedAdminBookingId(null);
+                  setWaitlistOfferState(null);
+                }}
               >
                 Закрыть
               </button>
@@ -1999,15 +2392,23 @@ export function AppShellPage() {
                 <p className={styles.softText}>
                   Текущее время: {formatSlot(adminBookingCardQuery.data.slot_start_at, adminBookingCardQuery.data.slot_end_at)}
                 </p>
+                {adminBookingCardQuery.data.waitlist_date ? (
+                  <p className={styles.softText}>
+                    Дата листа ожидания: {formatDayLabel(adminBookingCardQuery.data.waitlist_date)}
+                  </p>
+                ) : null}
                 {adminBookingCardQuery.data.requested_new_slot_start_at ? (
                   <p className={styles.softText}>
-                    Запрошен перенос:{" "}
+                    Предложенный слот:{" "}
                     {formatSlot(
                       adminBookingCardQuery.data.requested_new_slot_start_at,
                       adminBookingCardQuery.data.requested_new_slot_end_at
                     )}
                   </p>
                 ) : null}
+                <p className={styles.softText}>
+                  Комментарий клиента: {adminBookingCardQuery.data.comment?.trim() || "не указан"}
+                </p>
 
                 <label className={styles.field}>
                   <span>Комментарий для клиента</span>
@@ -2067,6 +2468,186 @@ export function AppShellPage() {
                         Отклонить
                       </button>
                     </div>
+                  </>
+                ) : adminBookingCardQuery.data.status === "waitlist" ||
+                  adminBookingCardQuery.data.status === "waitlist_offered" ? (
+                  <>
+                    <label className={styles.field}>
+                      <span>Ответ клиенту при отказе (можно отредактировать)</span>
+                      <textarea
+                        value={adminWaitlistRejectComment}
+                        onChange={(event) => setAdminWaitlistRejectComment(event.target.value)}
+                        placeholder="Укажите причину отказа или следующий шаг."
+                      />
+                    </label>
+                    <div className={styles.cardActionsCenter}>
+                      <button
+                        type="button"
+                        className={`${styles.buttonGhost} ${styles.centeredButton}`}
+                        onClick={() =>
+                          rejectAdminWaitlistMutation.mutate({
+                            bookingId: adminBookingCardQuery.data.booking_id,
+                            comment:
+                              adminWaitlistRejectComment.trim() ||
+                              buildWaitlistRejectTemplate(adminBookingCardQuery.data.waitlist_date)
+                          })
+                        }
+                        disabled={
+                          rejectAdminWaitlistMutation.isPending ||
+                          offerWaitlistSlotMutation.isPending ||
+                          loadWaitlistOfferSlotsMutation.isPending
+                        }
+                      >
+                        Отказать по листу ожидания
+                      </button>
+                    </div>
+                    {waitlistOfferState && waitlistOfferState.bookingId === adminBookingCardQuery.data.booking_id ? (
+                      <>
+                        <div className={styles.weekNav}>
+                          <button
+                            type="button"
+                            className={styles.buttonGhost}
+                            onClick={() => {
+                              const index = waitlistOfferState.slotsData.week_options.findIndex(
+                                (option) => option.key === waitlistOfferState.selectedWeek
+                              );
+                              if (index <= 0) {
+                                return;
+                              }
+                              const weekKey = waitlistOfferState.slotsData.week_options[index - 1].key;
+                              const dayKey =
+                                waitlistOfferState.slotsData.day_options_by_week[weekKey]?.[0]?.key ?? "";
+                              setWaitlistOfferState((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      selectedWeek: weekKey,
+                                      selectedDay: dayKey,
+                                      selectedSlot: prev.slotsData.time_options_by_day[dayKey]?.[0] ?? null
+                                    }
+                                  : prev
+                              );
+                            }}
+                          >
+                            ←
+                          </button>
+                          <p className={styles.weekLabel}>
+                            {waitlistOfferState.selectedWeek
+                              ? formatWeekLabel(waitlistOfferState.selectedWeek)
+                              : "Неделя"}
+                          </p>
+                          <button
+                            type="button"
+                            className={styles.buttonGhost}
+                            onClick={() => {
+                              const index = waitlistOfferState.slotsData.week_options.findIndex(
+                                (option) => option.key === waitlistOfferState.selectedWeek
+                              );
+                              if (index < 0 || index >= waitlistOfferState.slotsData.week_options.length - 1) {
+                                return;
+                              }
+                              const weekKey = waitlistOfferState.slotsData.week_options[index + 1].key;
+                              const dayKey =
+                                waitlistOfferState.slotsData.day_options_by_week[weekKey]?.[0]?.key ?? "";
+                              setWaitlistOfferState((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      selectedWeek: weekKey,
+                                      selectedDay: dayKey,
+                                      selectedSlot: prev.slotsData.time_options_by_day[dayKey]?.[0] ?? null
+                                    }
+                                  : prev
+                              );
+                            }}
+                          >
+                            →
+                          </button>
+                        </div>
+                        <div className={styles.cardActions}>
+                          {(waitlistOfferState.slotsData.day_options_by_week[waitlistOfferState.selectedWeek] ?? []).map(
+                            (day) => (
+                              <button
+                                key={day.key}
+                                type="button"
+                                className={day.key === waitlistOfferState.selectedDay ? styles.button : styles.buttonGhost}
+                                onClick={() => {
+                                  setWaitlistOfferState((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          selectedDay: day.key,
+                                          selectedSlot: prev.slotsData.time_options_by_day[day.key]?.[0] ?? null
+                                        }
+                                      : prev
+                                  );
+                                }}
+                              >
+                                {new Intl.DateTimeFormat("ru-RU", {
+                                  day: "numeric",
+                                  month: "long",
+                                  weekday: "long"
+                                }).format(new Date(day.key))}
+                              </button>
+                            )
+                          )}
+                        </div>
+                        <div className={styles.cardActions}>
+                          {(waitlistOfferState.slotsData.time_options_by_day[waitlistOfferState.selectedDay] ?? []).map(
+                            (slot) => (
+                              <button
+                                key={slot.slot_key}
+                                type="button"
+                                className={
+                                  waitlistOfferState.selectedSlot?.slot_key === slot.slot_key
+                                    ? styles.button
+                                    : styles.buttonGhost
+                                }
+                                onClick={() =>
+                                  setWaitlistOfferState((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          selectedSlot: slot
+                                        }
+                                      : prev
+                                  )
+                                }
+                              >
+                                {slot.label}
+                              </button>
+                            )
+                          )}
+                        </div>
+                        <div className={styles.cardActionsCenter}>
+                          <button
+                            type="button"
+                            className={`${styles.primaryCta} ${styles.centeredButton}`}
+                            onClick={() => offerWaitlistSlotMutation.mutate()}
+                            disabled={!waitlistOfferState.selectedSlot || offerWaitlistSlotMutation.isPending}
+                          >
+                            Отправить предложение слота
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className={styles.cardActionsCenter}>
+                        <button
+                          type="button"
+                          className={`${styles.primaryCta} ${styles.centeredButton}`}
+                          onClick={() =>
+                            loadWaitlistOfferSlotsMutation.mutate({
+                              bookingId: adminBookingCardQuery.data.booking_id,
+                              topic: adminBookingCardQuery.data.topic || "Без темы",
+                              durationMinutes: adminBookingCardQuery.data.duration_minutes || 30
+                            })
+                          }
+                          disabled={loadWaitlistOfferSlotsMutation.isPending}
+                        >
+                          Подобрать и предложить слот
+                        </button>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <p className={styles.softText}>Для этого статуса действия подтверждения не требуются.</p>
