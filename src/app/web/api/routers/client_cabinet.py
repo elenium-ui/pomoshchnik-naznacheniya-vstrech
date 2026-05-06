@@ -440,13 +440,11 @@ def accept_waitlist_offer(
     core: MiniAppCoreServices = Depends(get_core_services),
 ) -> ClientBookingActionResponse:
     session, user = _resolve_user(payload.init_data, auth_service=auth_service, core=core)
-    expires_at = (datetime.now(MSK) + timedelta(hours=72)).replace(tzinfo=None)
     try:
         updated = core.booking_service.accept_waitlist_offer_by_user(
             booking_id=booking_id,
             user_id=user.id,
             user_telegram_user_id=session.user.telegram_user_id,
-            expires_at_msk_naive=expires_at,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
@@ -468,7 +466,7 @@ def accept_waitlist_offer(
     return ClientBookingActionResponse(
         booking_id=updated.id,
         status=updated.status,
-        message="Слот принят. Заявка снова ожидает решения администратора.",
+        message="Слот принят. Заявка подтверждена.",
     )
 
 

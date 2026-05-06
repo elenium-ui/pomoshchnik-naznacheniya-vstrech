@@ -45,7 +45,7 @@ async def _configure_telegram_ui(bot: Bot, settings: Settings) -> None:
         )
         if settings.MINIAPP_PUBLIC_URL:
             await bot.set_chat_menu_button(
-                menu_button=MenuButtonWebApp(text="Открыть Mini App", web_app=WebAppInfo(url=settings.MINIAPP_PUBLIC_URL))
+                menu_button=MenuButtonWebApp(text="Мои записи", web_app=WebAppInfo(url=settings.MINIAPP_PUBLIC_URL))
             )
             logger.info("Telegram menu button configured as Mini App launcher.")
         else:

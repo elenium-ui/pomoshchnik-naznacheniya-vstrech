@@ -461,7 +461,6 @@ class BookingService:
         booking_id: int,
         user_id: int,
         user_telegram_user_id: int,
-        expires_at_msk_naive: datetime,
     ) -> Booking:
         with self._session_scope() as session:
             booking = self._repository.get_by_id_for_user(session=session, booking_id=booking_id, user_id=user_id)
@@ -489,20 +488,19 @@ class BookingService:
                 requested_new_slot_start_at=None,
                 requested_new_slot_end_at=None,
                 waitlist_date=None,
-                expires_at=expires_at_msk_naive,
+                expires_at=None,
             )
             self._transition_status(
                 session=session,
                 booking=booking,
-                new_status="pending_decision",
+                new_status="confirmed",
                 changed_by=f"user:{user_telegram_user_id}",
             )
             session.flush()
             logger.info(
-                "Waitlist offer accepted by user: booking_id=%s user_id=%s expires_at=%s",
+                "Waitlist offer accepted and auto-confirmed: booking_id=%s user_id=%s",
                 booking.id,
                 user_id,
-                expires_at_msk_naive,
             )
             return booking
 
